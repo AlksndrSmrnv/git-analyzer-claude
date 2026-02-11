@@ -341,6 +341,42 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Detects test when @DisplayName value contains 'fun' substring")
+    fun detectsTestWithFunInDisplayName() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,5 @@
++    @Test
++    @DisplayName("Test fun behavior")
++    fun myTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("myTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects test when intermediate annotation contains 'fun' in various positions")
+    fun detectsTestWithFunInAnnotationValue() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,5 @@
++    @Test
++    @Tag("fun stuff")
++    fun taggedTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("taggedTest", results[0].functionName)
+    }
+
+    @Test
     @DisplayName("Tracks correct file paths for multiple files in one diff")
     fun tracksFilePaths() {
         val diff = """

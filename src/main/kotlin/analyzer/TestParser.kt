@@ -62,6 +62,13 @@ class TestParser {
                 continue
             }
 
+            // Промежуточные аннотации (@DisplayName и т.п.) — флаг сохраняется.
+            // Важно: эта проверка ПЕРЕД containsFunDeclaration, т.к. значение
+            // аннотации может содержать " fun " (например @DisplayName("Test fun behavior"))
+            if (pendingTestAnnotation && content.startsWith("@")) {
+                continue
+            }
+
             // Строка с объявлением функции при активном флаге — новый тест найден.
             // Используем contains вместо startsWith, чтобы поддержать модификаторы
             // перед fun: internal fun, suspend fun, override fun и т.д.
@@ -71,11 +78,6 @@ class TestParser {
                     results.add(NewTestInfo(funName, currentFile))
                 }
                 pendingTestAnnotation = false
-                continue
-            }
-
-            // Промежуточные аннотации (@DisplayName и т.п.) — флаг сохраняется
-            if (pendingTestAnnotation && content.startsWith("@")) {
                 continue
             }
 
