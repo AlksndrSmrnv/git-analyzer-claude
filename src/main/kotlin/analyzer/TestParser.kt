@@ -62,8 +62,10 @@ class TestParser {
                 continue
             }
 
-            // Строка с объявлением функции при активном флаге — новый тест найден
-            if (pendingTestAnnotation && content.startsWith("fun ")) {
+            // Строка с объявлением функции при активном флаге — новый тест найден.
+            // Используем contains вместо startsWith, чтобы поддержать модификаторы
+            // перед fun: internal fun, suspend fun, override fun и т.д.
+            if (pendingTestAnnotation && containsFunDeclaration(content)) {
                 val funName = extractFunctionName(content)
                 if (funName != null && currentFile != null) {
                     results.add(NewTestInfo(funName, currentFile))
@@ -106,6 +108,10 @@ class TestParser {
                 content[annotation.length] in listOf('(', ' ', '\t') &&
                 content.contains(" fun ")
         }
+    }
+
+    private fun containsFunDeclaration(content: String): Boolean {
+        return content.startsWith("fun ") || content.contains(" fun ")
     }
 
     private fun extractFunctionName(content: String): String? {

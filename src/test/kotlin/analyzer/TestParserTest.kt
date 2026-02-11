@@ -256,6 +256,91 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Detects new test with 'internal' modifier")
+    fun detectsInternalFun() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    internal fun myInternalTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("myInternalTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects new test with 'suspend' modifier")
+    fun detectsSuspendFun() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    suspend fun mySuspendTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("mySuspendTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects new test with 'override' modifier")
+    fun detectsOverrideFun() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    override fun overriddenTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("overriddenTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects new test with 'open' modifier")
+    fun detectsOpenFun() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    open fun openTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("openTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects new test with multiple modifiers")
+    fun detectsMultipleModifiers() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    protected open fun protectedOpenTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("protectedOpenTest", results[0].functionName)
+    }
+
+    @Test
     @DisplayName("Tracks correct file paths for multiple files in one diff")
     fun tracksFilePaths() {
         val diff = """
