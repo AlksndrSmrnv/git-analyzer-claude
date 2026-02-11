@@ -1,6 +1,6 @@
 package analyzer
 
-import java.io.File
+import java.util.concurrent.CompletableFuture
 
 data class CommitInfo(
     val hash: String,
@@ -57,12 +57,19 @@ class GitClient(private val repoPath: String) {
         val process = ProcessBuilder(command)
             .redirectErrorStream(false)
             .start()
-        val stdout = process.inputStream.bufferedReader().readText()
-        val stderr = process.errorStream.bufferedReader().readText()
-        val exitCode = process.waitFor()
-        if (exitCode != 0 && stderr.isNotBlank()) {
-            System.err.println("Git error: $stderr")
+        try {
+            val stderrFuture = CompletableFuture.supplyAsync {
+                process.errorStream.bufferedReader().use { it.readText() }
+            }
+            val stdout = process.inputStream.bufferedReader().use { it.readText() }
+            val exitCode = process.waitFor()
+            val stderr = stderrFuture.get()
+            if (exitCode != 0 && stderr.isNotBlank()) {
+                System.err.println("Git error: $stderr")
+            }
+            return stdout.trim()
+        } finally {
+            process.destroyForcibly()
         }
-        return stdout.trim()
     }
 }
