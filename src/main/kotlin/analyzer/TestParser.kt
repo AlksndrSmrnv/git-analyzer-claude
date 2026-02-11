@@ -101,7 +101,10 @@ class TestParser {
 
     private fun hasTestAnnotationAndFun(content: String): Boolean {
         return testAnnotations.any { annotation ->
-            content.startsWith(annotation) && content.contains(" fun ")
+            content.startsWith(annotation) &&
+                content.length > annotation.length &&
+                content[annotation.length] in listOf('(', ' ', '\t') &&
+                content.contains(" fun ")
         }
     }
 

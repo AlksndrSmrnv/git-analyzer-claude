@@ -197,6 +197,65 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Does NOT count @TestFactory as @Test (inline annotation)")
+    fun doesNotCountTestFactoryInline() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,3 @@
++    @TestFactory fun createDynamicTests(): List<DynamicTest> {
++        return listOf()
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
+    @DisplayName("Does NOT count @TestFactory as @Test (multi-line annotation)")
+    fun doesNotCountTestFactoryMultiLine() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @TestFactory
++    fun createDynamicTests(): List<DynamicTest> {
++        return listOf()
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
+    @DisplayName("Does NOT count @TestTemplate as @Test")
+    fun doesNotCountTestTemplate() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,3 @@
++    @TestTemplate fun templateTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
+    @DisplayName("Does NOT count @TestMethodOrder as @Test")
+    fun doesNotCountTestMethodOrder() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,1 @@
++    @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
     @DisplayName("Tracks correct file paths for multiple files in one diff")
     fun tracksFilePaths() {
         val diff = """
