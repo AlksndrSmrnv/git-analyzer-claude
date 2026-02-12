@@ -99,8 +99,9 @@ class TestParser {
                 if (hasTestAnnotationAndFun(content)) {
                     val funName = extractFunctionName(content)
                     if (funName != null && currentFile != null) {
-                        val resolvedSystem = pendingTestSystem ?: currentClassSystem
+                        val resolvedSystem = pendingTestSystem ?: lastSeenSystem ?: currentClassSystem
                         addedTests.add(NewTestInfo(funName, currentFile, resolvedSystem))
+                        lastSeenSystem = null
                     }
                     addedPendingAnnotation = false
                     pendingTestSystem = null
@@ -109,6 +110,10 @@ class TestParser {
 
                 if (isTestAnnotation(content)) {
                     addedPendingAnnotation = true
+                    if (lastSeenSystem != null) {
+                        pendingTestSystem = lastSeenSystem
+                        lastSeenSystem = null
+                    }
                     continue
                 }
 
