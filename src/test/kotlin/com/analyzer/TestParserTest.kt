@@ -441,6 +441,72 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Does NOT count tests from a purely renamed file (similarity 100%)")
+    fun doesNotCountPureRename() {
+        // With -M flag, a pure rename produces only headers, no +/- content lines
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/NewTest.kt
+similarity index 100%
+rename from src/test/kotlin/OldTest.kt
+rename to src/test/kotlin/NewTest.kt
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
+    @DisplayName("Does NOT count existing tests from renamed file with minor edits")
+    fun doesNotCountRenamedFileWithMinorEdits() {
+        // With -M flag, git shows only the changed lines, not the whole file
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/NewTest.kt
+similarity index 95%
+rename from src/test/kotlin/OldTest.kt
+rename to src/test/kotlin/NewTest.kt
+index abc1234..def5678 100644
+--- a/src/test/kotlin/OldTest.kt
++++ b/src/test/kotlin/NewTest.kt
+@@ -1,4 +1,4 @@
+-package old.pkg
++package new.pkg
+
+ class NewTest {
+     @Test
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
+    @DisplayName("Counts only truly new test added in a renamed file")
+    fun countsNewTestInRenamedFile() {
+        // File renamed + one new test actually added
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/NewTest.kt
+similarity index 80%
+rename from src/test/kotlin/OldTest.kt
+rename to src/test/kotlin/NewTest.kt
+index abc1234..def5678 100644
+--- a/src/test/kotlin/OldTest.kt
++++ b/src/test/kotlin/NewTest.kt
+@@ -1,4 +1,4 @@
+-package old.pkg
++package new.pkg
+@@ -10,0 +10,4 @@
++    @Test
++    fun brandNewTestInRenamedFile() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("brandNewTestInRenamedFile", results[0].functionName)
+    }
+
+    @Test
     @DisplayName("Tracks correct file paths for multiple files in one diff")
     fun tracksFilePaths() {
         val diff = """
