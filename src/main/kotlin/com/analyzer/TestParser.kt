@@ -197,7 +197,8 @@ class TestParser {
                 lastSeenSystem = null
             }
 
-            if (contextSystemMatch == null && !isContextClassDeclaration && !contextContent.startsWith("@")) {
+            if (contextSystemMatch == null && !isContextClassDeclaration
+                && !contextContent.startsWith("@") && contextContent.isNotBlank()) {
                 lastSeenSystem = null
             }
 
