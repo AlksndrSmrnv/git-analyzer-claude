@@ -1,4 +1,4 @@
-package analyzer
+package com.analyzer
 
 import java.util.concurrent.CompletableFuture
 

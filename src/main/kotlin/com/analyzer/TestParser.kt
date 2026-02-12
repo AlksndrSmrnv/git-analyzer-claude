@@ -1,4 +1,4 @@
-package analyzer
+package com.analyzer
 
 data class NewTestInfo(
     val functionName: String,

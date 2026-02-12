@@ -13,7 +13,7 @@
     <properties>
         <kotlin.version>2.1.0</kotlin.version>
         <junit.version>5.11.0</junit.version>
-        <main.class>analyzer.MainKt</main.class>
+        <main.class>com.analyzer.MainKt</main.class>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.target>17</maven.compiler.target>
         <maven.compiler.source>17</maven.compiler.source>
