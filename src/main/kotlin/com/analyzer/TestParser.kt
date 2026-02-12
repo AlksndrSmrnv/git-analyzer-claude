@@ -202,6 +202,7 @@ class TestParser {
 
             // Сбрасываем оба флага — аннотация уже существовала
             addedPendingAnnotation = false
+            pendingTestSystem = null
             removedPendingAnnotation = false
         }
 
