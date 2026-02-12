@@ -35,6 +35,7 @@ class HtmlReportGenerator {
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t")
+            .replace("/", "\\/")
     }
 
     private fun buildHtml(jsonData: String, repoPath: String): String {
@@ -366,7 +367,8 @@ function getTimeBuckets(filtered, periodType) {
             key = d.toISOString().slice(0, 10);
         } else if (periodType === 'month' || periodType === 'custom') {
             const weekStart = new Date(d);
-            weekStart.setDate(d.getDate() - d.getDay() + 1);
+            const day = d.getDay() || 7;
+            weekStart.setDate(d.getDate() - day + 1);
             key = weekStart.toISOString().slice(0, 10);
         } else {
             key = d.toISOString().slice(0, 7);
