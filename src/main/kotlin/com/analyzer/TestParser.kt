@@ -191,8 +191,13 @@ class TestParser {
             }
 
             // Проверяем объявление класса на контекстных строках
-            if (classDeclarationRegex.containsMatchIn(contextContent)) {
+            val isContextClassDeclaration = classDeclarationRegex.containsMatchIn(contextContent)
+            if (isContextClassDeclaration) {
                 currentClassSystem = lastSeenSystem
+                lastSeenSystem = null
+            }
+
+            if (contextSystemMatch == null && !isContextClassDeclaration) {
                 lastSeenSystem = null
             }
 
