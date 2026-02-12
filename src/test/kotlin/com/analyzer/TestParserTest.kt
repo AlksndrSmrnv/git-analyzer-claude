@@ -44,6 +44,70 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Does NOT count renamed test where both @Test and fun are replaced")
+    fun doesNotCountRenamedTestFullReplace() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -10,4 +10,4 @@
+-    @Test
+-    fun oldTestName() {
+-        assertEquals(1, 1)
+-    }
++    @Test
++    fun newTestName() {
++        assertEquals(2, 2)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
+    @DisplayName("Counts net new tests when one removed and two added in same hunk")
+    fun countsNetNewTests() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -10,4 +10,8 @@
+-    @Test
+-    fun oldTest() {
+-    }
++    @Test
++    fun replacementTest() {
++    }
++    @Test
++    fun brandNewTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("brandNewTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Does NOT count test body-only changes with re-added annotation")
+    fun doesNotCountBodyChangeWithAnnotationRewrite() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -10,5 +10,5 @@
+-    @Test
+-    @DisplayName("old name")
+-    fun myTest() {
+-        assertEquals(1, 1)
+-    }
++    @Test
++    @DisplayName("new name")
++    fun myTest() {
++        assertEquals(2, 2)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
     @DisplayName("Handles @Test and fun on the same added line")
     fun handlesInlineAnnotation() {
         val diff = """

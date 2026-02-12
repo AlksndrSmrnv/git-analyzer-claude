@@ -9,16 +9,44 @@ class TestParser {
 
     private val testAnnotations = setOf("@Test", "@ParameterizedTest", "@RepeatedTest")
 
+    /**
+     * Находит по-настоящему НОВЫЕ тесты в diff-выводе git.
+     *
+     * Алгоритм: в каждом hunk'е собираем тесты из добавленных строк (+)
+     * и тесты из удалённых строк (-). Новыми считаются только те добавленные
+     * тесты, для которых нет соответствующего удалённого теста в том же hunk'е.
+     * Это исключает переименования и рефакторинги.
+     */
     fun findNewTests(diffOutput: String): List<NewTestInfo> {
         val results = mutableListOf<NewTestInfo>()
         var currentFile: String? = null
-        var pendingTestAnnotation = false
+
+        // Состояние для добавленных строк (+)
+        var addedPendingAnnotation = false
+        val addedTests = mutableListOf<NewTestInfo>()
+
+        // Состояние для удалённых строк (-)
+        var removedPendingAnnotation = false
+        var removedTestCount = 0
+
+        fun flushHunk() {
+            // Количество действительно новых тестов = added - removed (но не меньше 0)
+            val netNew = (addedTests.size - removedTestCount).coerceAtLeast(0)
+            if (netNew > 0) {
+                // Берём последние netNew тестов из added (новые — те, что «не покрыты» удалениями)
+                results.addAll(addedTests.takeLast(netNew))
+            }
+            addedTests.clear()
+            removedTestCount = 0
+            addedPendingAnnotation = false
+            removedPendingAnnotation = false
+        }
 
         for (line in diffOutput.lines()) {
-            // Отслеживаем текущий файл
+            // Новый файл
             if (line.startsWith("+++ b/")) {
+                flushHunk()
                 currentFile = line.removePrefix("+++ b/")
-                pendingTestAnnotation = false
                 continue
             }
 
@@ -27,70 +55,98 @@ class TestParser {
                 continue
             }
 
-            // Граница hunk — сбрасываем состояние
+            // Новый hunk — сбрасываем и сохраняем результаты предыдущего
             if (line.startsWith("@@")) {
-                pendingTestAnnotation = false
+                flushHunk()
                 continue
             }
 
-            // Нас интересуют только добавленные строки (начинаются с +)
-            if (!line.startsWith("+")) {
-                // Контекстная или удалённая строка — сбрасываем флаг,
-                // т.к. аннотация @Test уже существовала ранее
-                if (pendingTestAnnotation) {
-                    pendingTestAnnotation = false
+            // === Добавленные строки (+) ===
+            if (line.startsWith("+")) {
+                val content = line.substring(1).trim()
+
+                // @Test fun foo() на одной строке
+                if (hasTestAnnotationAndFun(content)) {
+                    val funName = extractFunctionName(content)
+                    if (funName != null && currentFile != null) {
+                        addedTests.add(NewTestInfo(funName, currentFile))
+                    }
+                    addedPendingAnnotation = false
+                    continue
+                }
+
+                if (isTestAnnotation(content)) {
+                    addedPendingAnnotation = true
+                    continue
+                }
+
+                // Промежуточные аннотации (@DisplayName и т.п.) — флаг сохраняется
+                if (addedPendingAnnotation && content.startsWith("@")) {
+                    continue
+                }
+
+                if (addedPendingAnnotation && containsFunDeclaration(content)) {
+                    val funName = extractFunctionName(content)
+                    if (funName != null && currentFile != null) {
+                        addedTests.add(NewTestInfo(funName, currentFile))
+                    }
+                    addedPendingAnnotation = false
+                    continue
+                }
+
+                if (addedPendingAnnotation && content.isBlank()) {
+                    continue
+                }
+
+                if (addedPendingAnnotation) {
+                    addedPendingAnnotation = false
                 }
                 continue
             }
 
-            // Убираем префикс '+' и пробелы для анализа содержимого
-            val content = line.substring(1).trim()
+            // === Удалённые строки (-) ===
+            if (line.startsWith("-")) {
+                val content = line.substring(1).trim()
 
-            // Случай: @Test fun foo() на одной строке
-            if (hasTestAnnotationAndFun(content)) {
-                val funName = extractFunctionName(content)
-                if (funName != null && currentFile != null) {
-                    results.add(NewTestInfo(funName, currentFile))
+                if (hasTestAnnotationAndFun(content)) {
+                    removedTestCount++
+                    removedPendingAnnotation = false
+                    continue
                 }
-                pendingTestAnnotation = false
-                continue
-            }
 
-            // Строка содержит тестовую аннотацию
-            if (isTestAnnotation(content)) {
-                pendingTestAnnotation = true
-                continue
-            }
-
-            // Промежуточные аннотации (@DisplayName и т.п.) — флаг сохраняется.
-            // Важно: эта проверка ПЕРЕД containsFunDeclaration, т.к. значение
-            // аннотации может содержать " fun " (например @DisplayName("Test fun behavior"))
-            if (pendingTestAnnotation && content.startsWith("@")) {
-                continue
-            }
-
-            // Строка с объявлением функции при активном флаге — новый тест найден.
-            // Используем contains вместо startsWith, чтобы поддержать модификаторы
-            // перед fun: internal fun, suspend fun, override fun и т.д.
-            if (pendingTestAnnotation && containsFunDeclaration(content)) {
-                val funName = extractFunctionName(content)
-                if (funName != null && currentFile != null) {
-                    results.add(NewTestInfo(funName, currentFile))
+                if (isTestAnnotation(content)) {
+                    removedPendingAnnotation = true
+                    continue
                 }
-                pendingTestAnnotation = false
+
+                if (removedPendingAnnotation && content.startsWith("@")) {
+                    continue
+                }
+
+                if (removedPendingAnnotation && containsFunDeclaration(content)) {
+                    removedTestCount++
+                    removedPendingAnnotation = false
+                    continue
+                }
+
+                if (removedPendingAnnotation && content.isBlank()) {
+                    continue
+                }
+
+                if (removedPendingAnnotation) {
+                    removedPendingAnnotation = false
+                }
                 continue
             }
 
-            // Пустая добавленная строка — флаг сохраняется
-            if (pendingTestAnnotation && content.isBlank()) {
-                continue
-            }
-
-            // Любая другая добавленная строка — сбрасываем флаг
-            if (pendingTestAnnotation) {
-                pendingTestAnnotation = false
-            }
+            // === Контекстные строки (без префикса) ===
+            // Сбрасываем оба флага — аннотация уже существовала
+            addedPendingAnnotation = false
+            removedPendingAnnotation = false
         }
+
+        // Последний hunk
+        flushHunk()
 
         return results
     }
