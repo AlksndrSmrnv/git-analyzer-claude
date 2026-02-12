@@ -143,6 +143,7 @@ class TestParser {
 
                 if (addedPendingAnnotation) {
                     addedPendingAnnotation = false
+                    pendingTestSystem = null
                 }
                 continue
             }
