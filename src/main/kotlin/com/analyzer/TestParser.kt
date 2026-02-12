@@ -143,6 +143,13 @@ class TestParser {
                     addedPendingAnnotation = false
                     pendingTestSystem = null
                 }
+
+                // Сбрасываем lastSeenSystem на обычных строках кода
+                // (не аннотация, не пустая строка), чтобы @System на поле/свойстве
+                // не утекал к последующим тестам
+                if (systemMatch == null && !content.startsWith("@") && content.isNotBlank()) {
+                    lastSeenSystem = null
+                }
                 continue
             }
 
