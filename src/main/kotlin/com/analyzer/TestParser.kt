@@ -89,10 +89,8 @@ class TestParser {
 
                 // Проверяем объявление класса
                 if (classDeclarationRegex.containsMatchIn(content)) {
-                    if (lastSeenSystem != null) {
-                        currentClassSystem = lastSeenSystem
-                        lastSeenSystem = null
-                    }
+                    currentClassSystem = lastSeenSystem
+                    lastSeenSystem = null
                 }
 
                 // @Test fun foo() на одной строке
@@ -194,10 +192,8 @@ class TestParser {
 
             // Проверяем объявление класса на контекстных строках
             if (classDeclarationRegex.containsMatchIn(contextContent)) {
-                if (lastSeenSystem != null) {
-                    currentClassSystem = lastSeenSystem
-                    lastSeenSystem = null
-                }
+                currentClassSystem = lastSeenSystem
+                lastSeenSystem = null
             }
 
             // Сбрасываем оба флага — аннотация уже существовала
