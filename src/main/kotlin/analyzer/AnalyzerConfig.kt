@@ -1,6 +1,6 @@
 package analyzer
 
-object Config {
+object AnalyzerConfig {
     /** Путь к анализируемому git-репозиторию */
     val REPO_PATH = "/path/to/your/test-repo"
 

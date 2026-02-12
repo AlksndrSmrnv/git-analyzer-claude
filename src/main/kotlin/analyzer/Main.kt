@@ -1,8 +1,8 @@
 package analyzer
 
 fun main() {
-    val repoPath = Config.REPO_PATH
-    val days = Config.DAYS
+    val repoPath = AnalyzerConfig.REPO_PATH
+    val days = AnalyzerConfig.DAYS
 
     val periodLabel = if (days != null) "Last $days days" else "All time"
 
