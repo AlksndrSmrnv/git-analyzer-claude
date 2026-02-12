@@ -41,9 +41,9 @@ class GitClient(private val repoPath: String) {
     fun getDiffForCommit(commitHash: String): String {
         val isRoot = isRootCommit(commitHash)
         return if (isRoot) {
-            runGit("diff-tree", "--root", "-p", commitHash, "--", "*.kt")
+            runGit("diff-tree", "--root", "-M", "-p", commitHash, "--", "*.kt")
         } else {
-            runGit("diff-tree", "-p", commitHash, "--", "*.kt")
+            runGit("diff-tree", "-M", "-p", commitHash, "--", "*.kt")
         }
     }
 
