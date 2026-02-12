@@ -1,0 +1,576 @@
+package com.analyzer
+
+import java.io.File
+
+class HtmlReportGenerator {
+
+    fun generate(records: List<TestRecord>, repoPath: String, outputPath: String) {
+        val jsonData = serializeToJson(records)
+        val html = buildHtml(jsonData, repoPath)
+        File(outputPath).writeText(html, Charsets.UTF_8)
+    }
+
+    private fun serializeToJson(records: List<TestRecord>): String {
+        if (records.isEmpty()) return "[]"
+        val sb = StringBuilder()
+        sb.append("[\n")
+        for ((index, record) in records.withIndex()) {
+            sb.append("{")
+            sb.append("\"author\":\"${escapeJson(record.authorEmail)}\",")
+            sb.append("\"test\":\"${escapeJson(record.functionName)}\",")
+            sb.append("\"file\":\"${escapeJson(record.filePath)}\",")
+            sb.append("\"date\":\"${escapeJson(record.date)}\"")
+            sb.append("}")
+            if (index < records.size - 1) sb.append(",")
+            sb.append("\n")
+        }
+        sb.append("]")
+        return sb.toString()
+    }
+
+    private fun escapeJson(value: String): String {
+        return value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+    }
+
+    private fun buildHtml(jsonData: String, repoPath: String): String {
+        return """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Отчёт по автоматизации тестов</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+${buildCss()}
+</head>
+<body>
+
+<div class="container">
+    <h1>Отчёт по автоматизации тестов</h1>
+    <p class="repo-path">Репозиторий: <code>${escapeHtml(repoPath)}</code></p>
+
+    <div class="period-selector">
+        <span class="period-label">Период:</span>
+        <button class="period-btn active" data-period="week">Последняя неделя</button>
+        <button class="period-btn" data-period="month">Последний месяц</button>
+        <button class="period-btn" data-period="year">Последний год</button>
+        <button class="period-btn" data-period="custom">Конкретный месяц</button>
+        <div class="custom-period" id="customPeriod" style="display:none">
+            <select id="customMonth">
+                <option value="1">Январь</option>
+                <option value="2">Февраль</option>
+                <option value="3">Март</option>
+                <option value="4">Апрель</option>
+                <option value="5">Май</option>
+                <option value="6">Июнь</option>
+                <option value="7">Июль</option>
+                <option value="8">Август</option>
+                <option value="9">Сентябрь</option>
+                <option value="10">Октябрь</option>
+                <option value="11">Ноябрь</option>
+                <option value="12">Декабрь</option>
+            </select>
+            <select id="customYear"></select>
+            <button class="apply-btn" id="applyCustom">Показать</button>
+        </div>
+    </div>
+
+    <div class="summary-section">
+        <h2>Сводка</h2>
+        <table id="summaryTable">
+            <thead>
+                <tr>
+                    <th>Автор</th>
+                    <th>Количество тестов</th>
+                    <th>% от общего</th>
+                </tr>
+            </thead>
+            <tbody id="summaryBody"></tbody>
+            <tfoot>
+                <tr class="total-row">
+                    <td><strong>Всего</strong></td>
+                    <td id="totalCount"><strong>0</strong></td>
+                    <td><strong>100%</strong></td>
+                </tr>
+            </tfoot>
+        </table>
+        <p class="no-data" id="noData" style="display:none">Нет данных за выбранный период.</p>
+    </div>
+
+    <div class="charts-section">
+        <h2>Тесты по авторам</h2>
+        <div class="chart-container">
+            <canvas id="authorChart"></canvas>
+        </div>
+
+        <h2>Динамика по времени</h2>
+        <div class="chart-container chart-timeline">
+            <canvas id="timelineChart"></canvas>
+        </div>
+    </div>
+
+    <div class="details-section">
+        <h2>Подробности</h2>
+        <div id="detailsList"></div>
+    </div>
+</div>
+
+<script>
+const DATA = $jsonData;
+${buildJavaScript()}
+</script>
+
+</body>
+</html>"""
+    }
+
+    private fun escapeHtml(value: String): String {
+        return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+    }
+
+    private fun buildCss(): String {
+        return """<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f5f7fa;
+    color: #1a1a2e;
+    line-height: 1.6;
+}
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 32px 0 16px;
+}
+.repo-path {
+    color: #555;
+    margin-bottom: 24px;
+}
+.repo-path code {
+    background: #e8ecf1;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+.period-selector {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.period-label {
+    font-weight: 600;
+    margin-right: 8px;
+}
+.period-btn {
+    padding: 8px 16px;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+}
+.period-btn:hover { background: #f0f2f5; }
+.period-btn.active {
+    background: #2563eb;
+    color: #fff;
+    border-color: #2563eb;
+}
+.custom-period {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+}
+.custom-period select, .apply-btn {
+    padding: 8px 12px;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fff;
+}
+.apply-btn {
+    background: #2563eb;
+    color: #fff;
+    border-color: #2563eb;
+    cursor: pointer;
+}
+.apply-btn:hover { background: #1d4ed8; }
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+thead th {
+    background: #f8f9fb;
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+    border-bottom: 2px solid #e5e7eb;
+}
+tbody td, tfoot td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+}
+tbody tr:hover { background: #f8f9fb; }
+.total-row td {
+    background: #f0f4ff;
+    border-top: 2px solid #2563eb;
+    border-bottom: none;
+}
+.no-data {
+    padding: 24px;
+    text-align: center;
+    color: #888;
+    font-style: italic;
+}
+.chart-container {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 16px;
+}
+.chart-timeline { min-height: 300px; }
+.details-section details {
+    background: #fff;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+.details-section summary {
+    padding: 12px 16px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.details-section summary:hover { background: #f8f9fb; }
+.details-section summary .count {
+    background: #2563eb;
+    color: #fff;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 500;
+}
+.details-section ul {
+    list-style: none;
+    padding: 0 16px 12px;
+}
+.details-section li {
+    padding: 4px 0;
+    font-size: 13px;
+    color: #444;
+    border-bottom: 1px solid #f5f5f5;
+}
+.details-section li:last-child { border-bottom: none; }
+.details-section .test-name { font-weight: 500; color: #1a1a2e; }
+.details-section .file-path { color: #888; margin-left: 8px; font-size: 12px; }
+</style>"""
+    }
+
+    private fun buildJavaScript(): String {
+        return """
+const COLORS = [
+    '#2563eb','#e11d48','#16a34a','#ea580c','#7c3aed',
+    '#0891b2','#c026d3','#ca8a04','#dc2626','#059669',
+    '#4f46e5','#d97706','#0d9488','#be185d','#65a30d'
+];
+
+let authorChart = null;
+let timelineChart = null;
+let currentPeriod = 'week';
+
+function parseDate(iso) { return new Date(iso); }
+
+function filterByPeriod(records, periodType, cMonth, cYear) {
+    const now = new Date();
+    let start, end;
+    switch (periodType) {
+        case 'week':
+            start = new Date(now); start.setDate(now.getDate() - 7);
+            end = now;
+            break;
+        case 'month':
+            start = new Date(now); start.setMonth(now.getMonth() - 1);
+            end = now;
+            break;
+        case 'year':
+            start = new Date(now); start.setFullYear(now.getFullYear() - 1);
+            end = now;
+            break;
+        case 'custom':
+            start = new Date(cYear, cMonth - 1, 1);
+            end = new Date(cYear, cMonth, 0, 23, 59, 59, 999);
+            break;
+    }
+    return records.filter(r => {
+        const d = parseDate(r.date);
+        return d >= start && d <= end;
+    });
+}
+
+function aggregateByAuthor(filtered) {
+    const map = {};
+    filtered.forEach(r => {
+        if (!map[r.author]) map[r.author] = [];
+        map[r.author].push(r);
+    });
+    return Object.entries(map)
+        .sort((a, b) => b[1].length - a[1].length)
+        .reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {});
+}
+
+function getTimeBuckets(filtered, periodType) {
+    if (filtered.length === 0) return { labels: [], datasets: {} };
+    const bucketMap = {};
+    const authorSet = new Set();
+
+    filtered.forEach(r => {
+        const d = parseDate(r.date);
+        let key;
+        if (periodType === 'week') {
+            key = d.toISOString().slice(0, 10);
+        } else if (periodType === 'month' || periodType === 'custom') {
+            const weekStart = new Date(d);
+            weekStart.setDate(d.getDate() - d.getDay() + 1);
+            key = weekStart.toISOString().slice(0, 10);
+        } else {
+            key = d.toISOString().slice(0, 7);
+        }
+        if (!bucketMap[key]) bucketMap[key] = {};
+        if (!bucketMap[key][r.author]) bucketMap[key][r.author] = 0;
+        bucketMap[key][r.author]++;
+        authorSet.add(r.author);
+    });
+
+    const labels = Object.keys(bucketMap).sort();
+    const authors = [...authorSet];
+    const datasets = {};
+    authors.forEach(a => {
+        datasets[a] = labels.map(l => bucketMap[l][a] || 0);
+    });
+    return { labels, datasets, authors };
+}
+
+const MONTH_NAMES = [
+    'Янв','Фев','Мар','Апр','Май','Июн',
+    'Июл','Авг','Сен','Окт','Ноя','Дек'
+];
+
+function formatLabel(key, periodType) {
+    if (periodType === 'year') {
+        const parts = key.split('-');
+        return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
+    }
+    const parts = key.split('-');
+    return parseInt(parts[2]) + ' ' + MONTH_NAMES[parseInt(parts[1]) - 1];
+}
+
+function renderTable(byAuthor) {
+    const body = document.getElementById('summaryBody');
+    const totalEl = document.getElementById('totalCount');
+    const noData = document.getElementById('noData');
+    const table = document.getElementById('summaryTable');
+
+    const entries = Object.entries(byAuthor);
+    const total = entries.reduce((s, e) => s + e[1].length, 0);
+
+    if (entries.length === 0) {
+        table.style.display = 'none';
+        noData.style.display = 'block';
+        return;
+    }
+    table.style.display = '';
+    noData.style.display = 'none';
+
+    body.innerHTML = entries.map(([author, tests]) => {
+        const pct = total > 0 ? (tests.length / total * 100).toFixed(1) : '0.0';
+        return '<tr><td>' + escapeHtml(author) + '</td><td>' + tests.length + '</td><td>' + pct + '%</td></tr>';
+    }).join('');
+
+    totalEl.innerHTML = '<strong>' + total + '</strong>';
+}
+
+function renderAuthorChart(byAuthor) {
+    const ctx = document.getElementById('authorChart').getContext('2d');
+    if (authorChart) authorChart.destroy();
+
+    const entries = Object.entries(byAuthor);
+    const labels = entries.map(e => e[0]);
+    const data = entries.map(e => e[1].length);
+    const colors = labels.map((_, i) => COLORS[i % COLORS.length]);
+
+    authorChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Количество тестов',
+                data: data,
+                backgroundColor: colors,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 } }
+            }
+        }
+    });
+}
+
+function renderTimelineChart(buckets, periodType) {
+    const ctx = document.getElementById('timelineChart').getContext('2d');
+    if (timelineChart) timelineChart.destroy();
+
+    if (!buckets.authors || buckets.authors.length === 0) {
+        timelineChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: [], datasets: [] },
+            options: { responsive: true }
+        });
+        return;
+    }
+
+    const labels = buckets.labels.map(l => formatLabel(l, periodType));
+    const datasets = buckets.authors.map((author, i) => ({
+        label: author,
+        data: buckets.datasets[author],
+        backgroundColor: COLORS[i % COLORS.length] + '99',
+        borderColor: COLORS[i % COLORS.length],
+        borderWidth: 2,
+        fill: false,
+        tension: 0.3
+    }));
+
+    timelineChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'bottom' }
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { precision: 0 } }
+            }
+        }
+    });
+}
+
+function renderDetails(byAuthor) {
+    const container = document.getElementById('detailsList');
+    if (Object.keys(byAuthor).length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = Object.entries(byAuthor).map(([author, tests]) => {
+        const items = tests.map(t =>
+            '<li><span class="test-name">' + escapeHtml(t.test) + '</span>' +
+            '<span class="file-path">' + escapeHtml(t.file) + '</span></li>'
+        ).join('');
+        return '<details><summary>' + escapeHtml(author) +
+            '<span class="count">' + tests.length + '</span></summary>' +
+            '<ul>' + items + '</ul></details>';
+    }).join('');
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function updateReport(periodType) {
+    currentPeriod = periodType;
+    const cMonth = parseInt(document.getElementById('customMonth').value);
+    const cYear = parseInt(document.getElementById('customYear').value);
+    const filtered = filterByPeriod(DATA, periodType, cMonth, cYear);
+    const byAuthor = aggregateByAuthor(filtered);
+    const buckets = getTimeBuckets(filtered, periodType);
+
+    renderTable(byAuthor);
+    renderDetails(byAuthor);
+
+    if (typeof Chart !== 'undefined') {
+        renderAuthorChart(byAuthor);
+        renderTimelineChart(buckets, periodType);
+    }
+}
+
+// --- Инициализация ---
+(function init() {
+    // Заполняем список годов из данных
+    const yearSelect = document.getElementById('customYear');
+    if (DATA.length > 0) {
+        const years = new Set(DATA.map(r => new Date(r.date).getFullYear()));
+        const sortedYears = [...years].sort((a, b) => b - a);
+        yearSelect.innerHTML = sortedYears.map(y =>
+            '<option value="' + y + '">' + y + '</option>'
+        ).join('');
+    } else {
+        const y = new Date().getFullYear();
+        yearSelect.innerHTML = '<option value="' + y + '">' + y + '</option>';
+    }
+
+    // Переключение периодов
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const period = btn.dataset.period;
+            document.getElementById('customPeriod').style.display =
+                period === 'custom' ? 'flex' : 'none';
+            if (period !== 'custom') updateReport(period);
+        });
+    });
+
+    document.getElementById('applyCustom').addEventListener('click', () => {
+        updateReport('custom');
+    });
+
+    // Первоначальный рендер
+    updateReport('week');
+})();
+"""
+    }
+}
