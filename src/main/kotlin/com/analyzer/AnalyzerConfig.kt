@@ -1,4 +1,4 @@
-package analyzer
+package com.analyzer
 
 object AnalyzerConfig {
     /** Путь к анализируемому git-репозиторию */

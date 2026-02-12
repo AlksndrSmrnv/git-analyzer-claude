@@ -1,4 +1,4 @@
-package analyzer
+package com.analyzer
 
 fun main() {
     val repoPath = AnalyzerConfig.REPO_PATH
