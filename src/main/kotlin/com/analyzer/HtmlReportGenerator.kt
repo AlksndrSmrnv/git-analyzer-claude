@@ -19,7 +19,12 @@ class HtmlReportGenerator {
             sb.append("\"author\":\"${escapeJson(record.authorEmail)}\",")
             sb.append("\"test\":\"${escapeJson(record.functionName)}\",")
             sb.append("\"file\":\"${escapeJson(record.filePath)}\",")
-            sb.append("\"date\":\"${escapeJson(record.date)}\"")
+            sb.append("\"date\":\"${escapeJson(record.date)}\",")
+            if (record.systemId != null) {
+                sb.append("\"system\":\"${escapeJson(record.systemId)}\"")
+            } else {
+                sb.append("\"system\":null")
+            }
             sb.append("}")
             if (index < records.size - 1) sb.append(",")
             sb.append("\n")
@@ -78,6 +83,12 @@ ${buildCss()}
             <select id="customYear"></select>
             <button class="apply-btn" id="applyCustom">Показать</button>
         </div>
+        <div class="system-filter">
+            <span class="period-label">Система:</span>
+            <select id="systemFilter">
+                <option value="all">Все системы</option>
+            </select>
+        </div>
     </div>
 
     <div class="summary-section">
@@ -111,6 +122,25 @@ ${buildCss()}
         <h2>Динамика по времени</h2>
         <div class="chart-container chart-timeline">
             <canvas id="timelineChart"></canvas>
+        </div>
+    </div>
+
+    <div class="systems-section">
+        <h2>Тесты по системам</h2>
+        <table id="systemsTable" style="display:none">
+            <thead>
+                <tr>
+                    <th>Система</th>
+                    <th>Количество тестов</th>
+                    <th>Авторы</th>
+                </tr>
+            </thead>
+            <tbody id="systemsBody"></tbody>
+        </table>
+        <p class="no-data" id="noSystemData" style="display:none">Нет данных по системам за выбранный период.</p>
+
+        <div class="chart-container" style="margin-top:16px">
+            <canvas id="systemChart"></canvas>
         </div>
     </div>
 
@@ -221,6 +251,19 @@ h2 {
     cursor: pointer;
 }
 .apply-btn:hover { background: #1d4ed8; }
+.system-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+.system-filter select {
+    padding: 8px 12px;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fff;
+}
 table {
     width: 100%;
     border-collapse: collapse;
@@ -300,6 +343,16 @@ tbody tr:hover { background: #f8f9fb; }
 .details-section li:last-child { border-bottom: none; }
 .details-section .test-name { font-weight: 500; color: #1a1a2e; }
 .details-section .file-path { color: #888; margin-left: 8px; font-size: 12px; }
+.system-badge {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 1px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    margin-left: 8px;
+}
 </style>"""
     }
 
@@ -313,6 +366,7 @@ const COLORS = [
 
 let authorChart = null;
 let timelineChart = null;
+let systemChart = null;
 let currentPeriod = 'week';
 
 function parseDate(iso) { return new Date(iso); }
@@ -355,6 +409,18 @@ function aggregateByAuthor(filtered) {
         .reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {});
 }
 
+function aggregateBySystem(filtered) {
+    const map = {};
+    filtered.forEach(r => {
+        const sys = r.system || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+        if (!map[sys]) map[sys] = [];
+        map[sys].push(r);
+    });
+    return Object.entries(map)
+        .sort((a, b) => b[1].length - a[1].length)
+        .reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {});
+}
+
 function getTimeBuckets(filtered, periodType) {
     if (filtered.length === 0) return { labels: [], datasets: {} };
     const bucketMap = {};
@@ -389,8 +455,8 @@ function getTimeBuckets(filtered, periodType) {
 }
 
 const MONTH_NAMES = [
-    'Янв','Фев','Мар','Апр','Май','Июн',
-    'Июл','Авг','Сен','Окт','Ноя','Дек'
+    '\u042f\u043d\u0432','\u0424\u0435\u0432','\u041c\u0430\u0440','\u0410\u043f\u0440','\u041c\u0430\u0439','\u0418\u044e\u043d',
+    '\u0418\u044e\u043b','\u0410\u0432\u0433','\u0421\u0435\u043d','\u041e\u043a\u0442','\u041d\u043e\u044f','\u0414\u0435\u043a'
 ];
 
 function formatLabel(key, periodType) {
@@ -441,7 +507,7 @@ function renderAuthorChart(byAuthor) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Количество тестов',
+                label: '\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0442\u0435\u0441\u0442\u043e\u0432',
                 data: data,
                 backgroundColor: colors,
                 borderRadius: 4
@@ -500,6 +566,81 @@ function renderTimelineChart(buckets, periodType) {
     });
 }
 
+function renderSystemsTable(bySystem) {
+    const body = document.getElementById('systemsBody');
+    const table = document.getElementById('systemsTable');
+    const noData = document.getElementById('noSystemData');
+
+    const entries = Object.entries(bySystem).filter(([sys]) => sys !== '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
+
+    if (entries.length === 0) {
+        table.style.display = 'none';
+        noData.style.display = 'block';
+        return;
+    }
+    table.style.display = '';
+    noData.style.display = 'none';
+
+    body.innerHTML = entries.map(([system, tests]) => {
+        const authorCounts = {};
+        tests.forEach(t => {
+            authorCounts[t.author] = (authorCounts[t.author] || 0) + 1;
+        });
+        const authorSummary = Object.entries(authorCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([a, c]) => escapeHtml(a) + ' (' + c + ')')
+            .join(', ');
+        return '<tr><td><code>' + escapeHtml(system) + '</code></td><td>' +
+               tests.length + '</td><td>' + authorSummary + '</td></tr>';
+    }).join('');
+}
+
+function renderSystemChart(bySystem) {
+    const ctx = document.getElementById('systemChart').getContext('2d');
+    if (systemChart) systemChart.destroy();
+
+    const entries = Object.entries(bySystem).filter(([sys]) => sys !== '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
+
+    if (entries.length === 0) {
+        systemChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: [], datasets: [] },
+            options: { responsive: true }
+        });
+        return;
+    }
+
+    const systems = entries.map(e => e[0]);
+    const authorSet = new Set();
+    entries.forEach(([, tests]) => tests.forEach(t => authorSet.add(t.author)));
+    const authors = [...authorSet];
+
+    const datasets = authors.map((author, i) => ({
+        label: author,
+        data: systems.map(sys => {
+            const entry = entries.find(([s]) => s === sys);
+            return entry ? entry[1].filter(t => t.author === author).length : 0;
+        }),
+        backgroundColor: COLORS[i % COLORS.length],
+        borderRadius: 4
+    }));
+
+    systemChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: systems, datasets: datasets },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom' }
+            },
+            scales: {
+                x: { stacked: true },
+                y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+            }
+        }
+    });
+}
+
 function renderDetails(byAuthor) {
     const container = document.getElementById('detailsList');
     if (Object.keys(byAuthor).length === 0) {
@@ -508,10 +649,14 @@ function renderDetails(byAuthor) {
     }
 
     container.innerHTML = Object.entries(byAuthor).map(([author, tests]) => {
-        const items = tests.map(t =>
-            '<li><span class="test-name">' + escapeHtml(t.test) + '</span>' +
-            '<span class="file-path">' + escapeHtml(t.file) + '</span></li>'
-        ).join('');
+        const items = tests.map(t => {
+            const sysBadge = t.system
+                ? '<span class="system-badge">' + escapeHtml(t.system) + '</span>'
+                : '';
+            return '<li><span class="test-name">' + escapeHtml(t.test) + '</span>' +
+                sysBadge +
+                '<span class="file-path">' + escapeHtml(t.file) + '</span></li>';
+        }).join('');
         return '<details><summary>' + escapeHtml(author) +
             '<span class="count">' + tests.length + '</span></summary>' +
             '<ul>' + items + '</ul></details>';
@@ -522,26 +667,43 @@ function escapeHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function populateSystemFilter(records) {
+    const select = document.getElementById('systemFilter');
+    const systems = new Set();
+    records.forEach(r => { if (r.system) systems.add(r.system); });
+    const sorted = [...systems].sort();
+    select.innerHTML = '<option value="all">\u0412\u0441\u0435 \u0441\u0438\u0441\u0442\u0435\u043c\u044b</option>' +
+        sorted.map(s => '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>').join('');
+}
+
 function updateReport(periodType) {
     currentPeriod = periodType;
     const cMonth = parseInt(document.getElementById('customMonth').value);
     const cYear = parseInt(document.getElementById('customYear').value);
-    const filtered = filterByPeriod(DATA, periodType, cMonth, cYear);
+    let filtered = filterByPeriod(DATA, periodType, cMonth, cYear);
+
+    const systemFilter = document.getElementById('systemFilter').value;
+    if (systemFilter !== 'all') {
+        filtered = filtered.filter(r => r.system === systemFilter);
+    }
+
     const byAuthor = aggregateByAuthor(filtered);
     const buckets = getTimeBuckets(filtered, periodType);
+    const bySystem = aggregateBySystem(filtered);
 
     renderTable(byAuthor);
     renderDetails(byAuthor);
+    renderSystemsTable(bySystem);
 
     if (typeof Chart !== 'undefined') {
         renderAuthorChart(byAuthor);
         renderTimelineChart(buckets, periodType);
+        renderSystemChart(bySystem);
     }
 }
 
-// --- Инициализация ---
+// --- \u0418\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f ---
 (function init() {
-    // Заполняем список годов из данных
     const yearSelect = document.getElementById('customYear');
     if (DATA.length > 0) {
         const years = new Set(DATA.map(r => new Date(r.date).getFullYear()));
@@ -554,7 +716,12 @@ function updateReport(periodType) {
         yearSelect.innerHTML = '<option value="' + y + '">' + y + '</option>';
     }
 
-    // Переключение периодов
+    populateSystemFilter(DATA);
+
+    document.getElementById('systemFilter').addEventListener('change', () => {
+        updateReport(currentPeriod);
+    });
+
     document.querySelectorAll('.period-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
@@ -570,7 +737,6 @@ function updateReport(periodType) {
         updateReport('custom');
     });
 
-    // Первоначальный рендер
     updateReport('week');
 })();
 """

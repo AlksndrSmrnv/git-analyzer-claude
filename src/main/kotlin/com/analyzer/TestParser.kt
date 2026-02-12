@@ -2,12 +2,15 @@ package com.analyzer
 
 data class NewTestInfo(
     val functionName: String,
-    val filePath: String
+    val filePath: String,
+    val systemId: String? = null
 )
 
 class TestParser {
 
     private val testAnnotations = setOf("@Test", "@ParameterizedTest", "@RepeatedTest")
+    private val systemAnnotationRegex = Regex("""@System\("([^"]+)"\)""")
+    private val classDeclarationRegex = Regex("""\bclass\s+\w+""")
 
     /**
      * Находит по-настоящему НОВЫЕ тесты в diff-выводе git.
@@ -16,6 +19,9 @@ class TestParser {
      * и тесты из удалённых строк (-). Новыми считаются только те добавленные
      * тесты, для которых нет соответствующего удалённого теста в том же hunk'е.
      * Это исключает переименования и рефакторинги.
+     *
+     * Также извлекает @System("...") аннотацию — на уровне класса (наследуется
+     * всеми тестами) или на уровне конкретного теста (переопределяет класс).
      */
     fun findNewTests(diffOutput: String): List<NewTestInfo> {
         val results = mutableListOf<NewTestInfo>()
@@ -29,6 +35,11 @@ class TestParser {
         var removedPendingAnnotation = false
         var removedTestCount = 0
 
+        // Состояние для @System
+        var currentClassSystem: String? = null
+        var lastSeenSystem: String? = null
+        var pendingTestSystem: String? = null
+
         fun flushHunk() {
             // Количество действительно новых тестов = added - removed (но не меньше 0)
             val netNew = (addedTests.size - removedTestCount).coerceAtLeast(0)
@@ -40,6 +51,8 @@ class TestParser {
             removedTestCount = 0
             addedPendingAnnotation = false
             removedPendingAnnotation = false
+            pendingTestSystem = null
+            lastSeenSystem = null
         }
 
         for (line in diffOutput.lines()) {
@@ -47,6 +60,9 @@ class TestParser {
             if (line.startsWith("+++ b/")) {
                 flushHunk()
                 currentFile = line.removePrefix("+++ b/")
+                currentClassSystem = null
+                lastSeenSystem = null
+                pendingTestSystem = null
                 continue
             }
 
@@ -65,13 +81,29 @@ class TestParser {
             if (line.startsWith("+")) {
                 val content = line.substring(1).trim()
 
+                // Проверяем @System на этой строке
+                val systemMatch = systemAnnotationRegex.find(content)
+                if (systemMatch != null) {
+                    lastSeenSystem = systemMatch.groupValues[1]
+                }
+
+                // Проверяем объявление класса
+                if (classDeclarationRegex.containsMatchIn(content)) {
+                    if (lastSeenSystem != null) {
+                        currentClassSystem = lastSeenSystem
+                        lastSeenSystem = null
+                    }
+                }
+
                 // @Test fun foo() на одной строке
                 if (hasTestAnnotationAndFun(content)) {
                     val funName = extractFunctionName(content)
                     if (funName != null && currentFile != null) {
-                        addedTests.add(NewTestInfo(funName, currentFile))
+                        val resolvedSystem = pendingTestSystem ?: currentClassSystem
+                        addedTests.add(NewTestInfo(funName, currentFile, resolvedSystem))
                     }
                     addedPendingAnnotation = false
+                    pendingTestSystem = null
                     continue
                 }
 
@@ -80,17 +112,23 @@ class TestParser {
                     continue
                 }
 
-                // Промежуточные аннотации (@DisplayName и т.п.) — флаг сохраняется
+                // Промежуточные аннотации (@DisplayName, @System и т.п.) — флаг сохраняется
                 if (addedPendingAnnotation && content.startsWith("@")) {
+                    if (systemMatch != null) {
+                        pendingTestSystem = systemMatch.groupValues[1]
+                        lastSeenSystem = null
+                    }
                     continue
                 }
 
                 if (addedPendingAnnotation && containsFunDeclaration(content)) {
                     val funName = extractFunctionName(content)
                     if (funName != null && currentFile != null) {
-                        addedTests.add(NewTestInfo(funName, currentFile))
+                        val resolvedSystem = pendingTestSystem ?: currentClassSystem
+                        addedTests.add(NewTestInfo(funName, currentFile, resolvedSystem))
                     }
                     addedPendingAnnotation = false
+                    pendingTestSystem = null
                     continue
                 }
 
@@ -140,6 +178,22 @@ class TestParser {
             }
 
             // === Контекстные строки (без префикса) ===
+            val contextContent = line.trim()
+
+            // Проверяем @System на контекстных строках (неизменённый класс)
+            val contextSystemMatch = systemAnnotationRegex.find(contextContent)
+            if (contextSystemMatch != null) {
+                lastSeenSystem = contextSystemMatch.groupValues[1]
+            }
+
+            // Проверяем объявление класса на контекстных строках
+            if (classDeclarationRegex.containsMatchIn(contextContent)) {
+                if (lastSeenSystem != null) {
+                    currentClassSystem = lastSeenSystem
+                    lastSeenSystem = null
+                }
+            }
+
             // Сбрасываем оба флага — аннотация уже существовала
             addedPendingAnnotation = false
             removedPendingAnnotation = false

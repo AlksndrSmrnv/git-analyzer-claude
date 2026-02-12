@@ -47,7 +47,8 @@ fun main() {
                         authorEmail = commit.authorEmail,
                         functionName = test.functionName,
                         filePath = test.filePath,
-                        date = commit.date
+                        date = commit.date,
+                        systemId = test.systemId
                     )
                 )
             }
