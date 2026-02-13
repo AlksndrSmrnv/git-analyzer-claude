@@ -19,6 +19,12 @@ object AnalyzerConfig {
     val HTML_REPORT_PATH = "test-report.html"
 
     /**
+     * Количество потоков для параллельного анализа коммитов.
+     * По умолчанию — количество доступных процессорных ядер.
+     */
+    val THREAD_COUNT: Int = Runtime.getRuntime().availableProcessors()
+
+    /**
      * Словарь: ID системы → понятное название.
      * Например: "CI01337" → "Платёжная система"
      */

@@ -38,13 +38,31 @@ class GitClient(private val repoPath: String) {
         }
     }
 
-    fun getDiffForCommit(commitHash: String): String {
-        val isRoot = isRootCommit(commitHash)
+    /**
+     * Определяет все root-коммиты репозитория одной командой git.
+     * Возвращает Set хэшей root-коммитов.
+     */
+    fun findRootCommits(): Set<String> {
+        return try {
+            val output = runGit("rev-list", "--max-parents=0", "HEAD")
+            output.lines().map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    fun getDiffForCommit(commitHash: String, isRoot: Boolean): String {
         return if (isRoot) {
             runGit("diff-tree", "--root", "-M", "-p", commitHash, "--", "*.kt")
         } else {
             runGit("diff-tree", "-M", "-p", commitHash, "--", "*.kt")
         }
+    }
+
+    /** Обратная совместимость: определяет root сам (медленнее). */
+    fun getDiffForCommit(commitHash: String): String {
+        val isRoot = isRootCommit(commitHash)
+        return getDiffForCommit(commitHash, isRoot)
     }
 
     private fun isRootCommit(commitHash: String): Boolean {
