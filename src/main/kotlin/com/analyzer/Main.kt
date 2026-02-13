@@ -74,7 +74,11 @@ fun main() {
     if (generateHtml) {
         val outputPath = AnalyzerConfig.HTML_REPORT_PATH
         val htmlGenerator = HtmlReportGenerator()
-        htmlGenerator.generate(allTestRecords, repoPath, outputPath)
+        htmlGenerator.generate(
+            allTestRecords, repoPath, outputPath,
+            systemNames = AnalyzerConfig.SYSTEM_NAMES,
+            authorNames = AnalyzerConfig.AUTHOR_NAMES
+        )
         println("HTML report generated: $outputPath")
     }
 }

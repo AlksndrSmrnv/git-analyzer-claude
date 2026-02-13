@@ -17,4 +17,23 @@ object AnalyzerConfig {
 
     /** Путь для сохранения HTML-отчёта */
     val HTML_REPORT_PATH = "test-report.html"
+
+    /**
+     * Словарь: ID системы → понятное название.
+     * Например: "CI01337" → "Платёжная система"
+     */
+    val SYSTEM_NAMES: Map<String, String> = mapOf(
+        // "CI01337" to "Платёжная система",
+        // "CI02000" to "Система авторизации",
+    )
+
+    /**
+     * Словарь: e-mail → Фамилия Имя.
+     * Если несколько e-mail указывают на одного человека,
+     * укажите одинаковое имя — данные будут объединены.
+     */
+    val AUTHOR_NAMES: Map<String, String> = mapOf(
+        // "ivanov@company.com" to "Иванов Иван",
+        // "ivan.ivanov@company.com" to "Иванов Иван",
+    )
 }

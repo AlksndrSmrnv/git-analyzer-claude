@@ -4,9 +4,17 @@ import java.io.File
 
 class HtmlReportGenerator {
 
-    fun generate(records: List<TestRecord>, repoPath: String, outputPath: String) {
+    fun generate(
+        records: List<TestRecord>,
+        repoPath: String,
+        outputPath: String,
+        systemNames: Map<String, String> = emptyMap(),
+        authorNames: Map<String, String> = emptyMap()
+    ) {
         val jsonData = serializeToJson(records)
-        val html = buildHtml(jsonData, repoPath)
+        val systemNamesJson = serializeMapToJson(systemNames)
+        val authorNamesJson = serializeMapToJson(authorNames)
+        val html = buildHtml(jsonData, systemNamesJson, authorNamesJson, repoPath)
         File(outputPath).writeText(html, Charsets.UTF_8)
     }
 
@@ -33,6 +41,14 @@ class HtmlReportGenerator {
         return sb.toString()
     }
 
+    private fun serializeMapToJson(map: Map<String, String>): String {
+        if (map.isEmpty()) return "{}"
+        val entries = map.entries.joinToString(",") { (k, v) ->
+            "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
+        }
+        return "{$entries}"
+    }
+
     private fun escapeJson(value: String): String {
         return value
             .replace("\\", "\\\\")
@@ -43,7 +59,12 @@ class HtmlReportGenerator {
             .replace("/", "\\/")
     }
 
-    private fun buildHtml(jsonData: String, repoPath: String): String {
+    private fun buildHtml(
+        jsonData: String,
+        systemNamesJson: String,
+        authorNamesJson: String,
+        repoPath: String
+    ): String {
         return """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -63,6 +84,7 @@ ${buildCss()}
         <span class="period-label">Период:</span>
         <button class="period-btn active" data-period="week">Последняя неделя</button>
         <button class="period-btn" data-period="month">Последний месяц</button>
+        <button class="period-btn" data-period="quarter">Квартал</button>
         <button class="period-btn" data-period="year">Последний год</button>
         <button class="period-btn" data-period="custom">Конкретный месяц</button>
         <div class="custom-period" id="customPeriod" style="display:none">
@@ -82,6 +104,16 @@ ${buildCss()}
             </select>
             <select id="customYear"></select>
             <button class="apply-btn" id="applyCustom">Показать</button>
+        </div>
+        <div class="custom-period" id="quarterPeriod" style="display:none">
+            <select id="quarterSelect">
+                <option value="1">Q1 (Янв–Мар)</option>
+                <option value="2">Q2 (Апр–Июн)</option>
+                <option value="3">Q3 (Июл–Сен)</option>
+                <option value="4">Q4 (Окт–Дек)</option>
+            </select>
+            <select id="quarterYear"></select>
+            <button class="apply-btn" id="applyQuarter">Показать</button>
         </div>
         <div class="system-filter">
             <span class="period-label">Система:</span>
@@ -139,7 +171,13 @@ ${buildCss()}
         </table>
         <p class="no-data" id="noSystemData" style="display:none">Нет данных по системам за выбранный период.</p>
 
-        <div class="chart-container" style="margin-top:16px">
+        <h2>Количество тестов по системам</h2>
+        <div class="chart-container">
+            <canvas id="systemCountChart"></canvas>
+        </div>
+
+        <h2>Авторы × Системы</h2>
+        <div class="chart-container">
             <canvas id="systemChart"></canvas>
         </div>
     </div>
@@ -152,6 +190,8 @@ ${buildCss()}
 
 <script>
 const DATA = $jsonData;
+const SYSTEM_NAMES = $systemNamesJson;
+const AUTHOR_NAMES = $authorNamesJson;
 ${buildJavaScript()}
 </script>
 
@@ -367,11 +407,26 @@ const COLORS = [
 let authorChart = null;
 let timelineChart = null;
 let systemChart = null;
+let systemCountChart = null;
 let currentPeriod = 'week';
+
+function resolveAuthor(email) {
+    return AUTHOR_NAMES[email] || email;
+}
+
+function resolveSystem(id) {
+    if (!id) return id;
+    return SYSTEM_NAMES[id] || id;
+}
+
+function resolveSystemLabel(id) {
+    if (!id) return '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    return SYSTEM_NAMES[id] ? SYSTEM_NAMES[id] + ' (' + id + ')' : id;
+}
 
 function parseDate(iso) { return new Date(iso); }
 
-function filterByPeriod(records, periodType, cMonth, cYear) {
+function filterByPeriod(records, periodType, cMonth, cYear, cQuarter) {
     const now = new Date();
     let start, end;
     switch (periodType) {
@@ -387,6 +442,11 @@ function filterByPeriod(records, periodType, cMonth, cYear) {
             start = new Date(now); start.setFullYear(now.getFullYear() - 1);
             end = now;
             break;
+        case 'quarter':
+            const qStartMonth = (cQuarter - 1) * 3;
+            start = new Date(cYear, qStartMonth, 1);
+            end = new Date(cYear, qStartMonth + 3, 0, 23, 59, 59, 999);
+            break;
         case 'custom':
             start = new Date(cYear, cMonth - 1, 1);
             end = new Date(cYear, cMonth, 0, 23, 59, 59, 999);
@@ -398,9 +458,17 @@ function filterByPeriod(records, periodType, cMonth, cYear) {
     });
 }
 
+function mergeByAuthor(records) {
+    return records.map(r => ({
+        ...r,
+        author: resolveAuthor(r.author)
+    }));
+}
+
 function aggregateByAuthor(filtered) {
+    const merged = mergeByAuthor(filtered);
     const map = {};
-    filtered.forEach(r => {
+    merged.forEach(r => {
         if (!map[r.author]) map[r.author] = [];
         map[r.author].push(r);
     });
@@ -410,9 +478,10 @@ function aggregateByAuthor(filtered) {
 }
 
 function aggregateBySystem(filtered) {
+    const merged = mergeByAuthor(filtered);
     const map = {};
-    filtered.forEach(r => {
-        const sys = r.system || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    merged.forEach(r => {
+        const sys = resolveSystemLabel(r.system);
         if (!map[sys]) map[sys] = [];
         map[sys].push(r);
     });
@@ -423,10 +492,11 @@ function aggregateBySystem(filtered) {
 
 function getTimeBuckets(filtered, periodType) {
     if (filtered.length === 0) return { labels: [], datasets: {} };
+    const merged = mergeByAuthor(filtered);
     const bucketMap = {};
     const authorSet = new Set();
 
-    filtered.forEach(r => {
+    merged.forEach(r => {
         const d = parseDate(r.date);
         let key;
         if (periodType === 'week') {
@@ -460,7 +530,7 @@ const MONTH_NAMES = [
 ];
 
 function formatLabel(key, periodType) {
-    if (periodType === 'year') {
+    if (periodType === 'year' || periodType === 'quarter') {
         const parts = key.split('-');
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
@@ -516,12 +586,8 @@ function renderAuthorChart(byAuthor) {
         options: {
             indexAxis: 'y',
             responsive: true,
-            plugins: {
-                legend: { display: false }
-            },
-            scales: {
-                x: { beginAtZero: true, ticks: { precision: 0 } }
-            }
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
         }
     });
 }
@@ -532,9 +598,7 @@ function renderTimelineChart(buckets, periodType) {
 
     if (!buckets.authors || buckets.authors.length === 0) {
         timelineChart = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: [], datasets: [] },
-            options: { responsive: true }
+            type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true }
         });
         return;
     }
@@ -545,9 +609,7 @@ function renderTimelineChart(buckets, periodType) {
         data: buckets.datasets[author],
         backgroundColor: COLORS[i % COLORS.length] + '99',
         borderColor: COLORS[i % COLORS.length],
-        borderWidth: 2,
-        fill: false,
-        tension: 0.3
+        borderWidth: 2, fill: false, tension: 0.3
     }));
 
     timelineChart = new Chart(ctx, {
@@ -556,12 +618,8 @@ function renderTimelineChart(buckets, periodType) {
         options: {
             responsive: true,
             interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { position: 'bottom' }
-            },
-            scales: {
-                y: { beginAtZero: true, ticks: { precision: 0 } }
-            }
+            plugins: { legend: { position: 'bottom' } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
         }
     });
 }
@@ -583,9 +641,7 @@ function renderSystemsTable(bySystem) {
 
     body.innerHTML = entries.map(([system, tests]) => {
         const authorCounts = {};
-        tests.forEach(t => {
-            authorCounts[t.author] = (authorCounts[t.author] || 0) + 1;
-        });
+        tests.forEach(t => { authorCounts[t.author] = (authorCounts[t.author] || 0) + 1; });
         const authorSummary = Object.entries(authorCounts)
             .sort((a, b) => b[1] - a[1])
             .map(([a, c]) => escapeHtml(a) + ' (' + c + ')')
@@ -593,6 +649,43 @@ function renderSystemsTable(bySystem) {
         return '<tr><td><code>' + escapeHtml(system) + '</code></td><td>' +
                tests.length + '</td><td>' + authorSummary + '</td></tr>';
     }).join('');
+}
+
+function renderSystemCountChart(bySystem) {
+    const ctx = document.getElementById('systemCountChart').getContext('2d');
+    if (systemCountChart) systemCountChart.destroy();
+
+    const entries = Object.entries(bySystem).filter(([sys]) => sys !== '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
+
+    if (entries.length === 0) {
+        systemCountChart = new Chart(ctx, {
+            type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true }
+        });
+        return;
+    }
+
+    const labels = entries.map(e => e[0]);
+    const data = entries.map(e => e[1].length);
+    const colors = labels.map((_, i) => COLORS[i % COLORS.length]);
+
+    systemCountChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0442\u0435\u0441\u0442\u043e\u0432',
+                data: data,
+                backgroundColor: colors,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
 }
 
 function renderSystemChart(bySystem) {
@@ -603,9 +696,7 @@ function renderSystemChart(bySystem) {
 
     if (entries.length === 0) {
         systemChart = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: [], datasets: [] },
-            options: { responsive: true }
+            type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true }
         });
         return;
     }
@@ -630,9 +721,7 @@ function renderSystemChart(bySystem) {
         data: { labels: systems, datasets: datasets },
         options: {
             responsive: true,
-            plugins: {
-                legend: { position: 'bottom' }
-            },
+            plugins: { legend: { position: 'bottom' } },
             scales: {
                 x: { stacked: true },
                 y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
@@ -650,8 +739,9 @@ function renderDetails(byAuthor) {
 
     container.innerHTML = Object.entries(byAuthor).map(([author, tests]) => {
         const items = tests.map(t => {
+            const sysLabel = resolveSystemLabel(t.system);
             const sysBadge = t.system
-                ? '<span class="system-badge">' + escapeHtml(t.system) + '</span>'
+                ? '<span class="system-badge">' + escapeHtml(sysLabel) + '</span>'
                 : '';
             return '<li><span class="test-name">' + escapeHtml(t.test) + '</span>' +
                 sysBadge +
@@ -673,14 +763,20 @@ function populateSystemFilter(records) {
     records.forEach(r => { if (r.system) systems.add(r.system); });
     const sorted = [...systems].sort();
     select.innerHTML = '<option value="all">\u0412\u0441\u0435 \u0441\u0438\u0441\u0442\u0435\u043c\u044b</option>' +
-        sorted.map(s => '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>').join('');
+        sorted.map(s => {
+            const label = resolveSystem(s);
+            return '<option value="' + escapeHtml(s) + '">' + escapeHtml(label) + '</option>';
+        }).join('');
 }
 
 function updateReport(periodType) {
     currentPeriod = periodType;
     const cMonth = parseInt(document.getElementById('customMonth').value);
     const cYear = parseInt(document.getElementById('customYear').value);
-    let filtered = filterByPeriod(DATA, periodType, cMonth, cYear);
+    const cQuarter = parseInt(document.getElementById('quarterSelect').value);
+    const qYear = parseInt(document.getElementById('quarterYear').value);
+    const effectiveYear = periodType === 'quarter' ? qYear : cYear;
+    let filtered = filterByPeriod(DATA, periodType, cMonth, effectiveYear, cQuarter);
 
     const systemFilter = document.getElementById('systemFilter').value;
     if (systemFilter !== 'all') {
@@ -698,6 +794,7 @@ function updateReport(periodType) {
     if (typeof Chart !== 'undefined') {
         renderAuthorChart(byAuthor);
         renderTimelineChart(buckets, periodType);
+        renderSystemCountChart(bySystem);
         renderSystemChart(bySystem);
     }
 }
@@ -705,15 +802,18 @@ function updateReport(periodType) {
 // --- \u0418\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f ---
 (function init() {
     const yearSelect = document.getElementById('customYear');
+    const quarterYearSelect = document.getElementById('quarterYear');
     if (DATA.length > 0) {
         const years = new Set(DATA.map(r => new Date(r.date).getFullYear()));
         const sortedYears = [...years].sort((a, b) => b - a);
-        yearSelect.innerHTML = sortedYears.map(y =>
-            '<option value="' + y + '">' + y + '</option>'
-        ).join('');
+        const opts = sortedYears.map(y => '<option value="' + y + '">' + y + '</option>').join('');
+        yearSelect.innerHTML = opts;
+        quarterYearSelect.innerHTML = opts;
     } else {
         const y = new Date().getFullYear();
-        yearSelect.innerHTML = '<option value="' + y + '">' + y + '</option>';
+        const opt = '<option value="' + y + '">' + y + '</option>';
+        yearSelect.innerHTML = opt;
+        quarterYearSelect.innerHTML = opt;
     }
 
     populateSystemFilter(DATA);
@@ -729,12 +829,18 @@ function updateReport(periodType) {
             const period = btn.dataset.period;
             document.getElementById('customPeriod').style.display =
                 period === 'custom' ? 'flex' : 'none';
-            if (period !== 'custom') updateReport(period);
+            document.getElementById('quarterPeriod').style.display =
+                period === 'quarter' ? 'flex' : 'none';
+            if (period !== 'custom' && period !== 'quarter') updateReport(period);
         });
     });
 
     document.getElementById('applyCustom').addEventListener('click', () => {
         updateReport('custom');
+    });
+
+    document.getElementById('applyQuarter').addEventListener('click', () => {
+        updateReport('quarter');
     });
 
     updateReport('week');
