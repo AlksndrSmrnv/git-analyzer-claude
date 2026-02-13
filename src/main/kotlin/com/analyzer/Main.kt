@@ -1,12 +1,23 @@
 package com.analyzer
 
+import kotlinx.coroutines.*
 import java.time.OffsetDateTime
 import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Результат обработки одного коммита.
+ */
+private data class CommitResult(
+    val records: List<TestRecord>,
+    val commit: CommitInfo
+)
 
 fun main() {
     val repoPath = AnalyzerConfig.REPO_PATH
     val days = AnalyzerConfig.DAYS
     val generateHtml = AnalyzerConfig.GENERATE_HTML
+    val threadCount = AnalyzerConfig.THREAD_COUNT
 
     val gitClient = GitClient(repoPath)
 
@@ -25,43 +36,79 @@ fun main() {
         println("No commits found.")
         return
     }
-    println("Found ${commits.size} commits to analyze...")
+    println("Found ${commits.size} commits to analyze (threads: $threadCount)...")
 
-    val parser = TestParser()
+    // Определяем root-коммиты одной командой вместо проверки каждого
+    val rootCommits = gitClient.findRootCommits()
+
     val allTestRecords = mutableListOf<TestRecord>()
     val testsByAuthor = mutableMapOf<String, MutableList<NewTestInfo>>()
 
-    for ((index, commit) in commits.withIndex()) {
-        if ((index + 1) % 50 == 0) {
-            println("  Processing commit ${index + 1}/${commits.size}...")
-        }
+    val processed = AtomicInteger(0)
+    val total = commits.size
 
-        val diff = gitClient.getDiffForCommit(commit.hash)
-        if (diff.isBlank()) continue
+    runBlocking {
+        // Фиксированный диспатчер с заданным числом потоков
+        val dispatcher = Dispatchers.IO.limitedParallelism(threadCount)
 
-        val newTests = parser.findNewTests(diff)
-        if (newTests.isNotEmpty()) {
-            for (test in newTests) {
-                allTestRecords.add(
-                    TestRecord(
-                        authorEmail = commit.authorEmail,
-                        functionName = test.functionName,
-                        filePath = test.filePath,
-                        date = commit.date,
-                        systemId = test.systemId
-                    )
-                )
-            }
+        // Обрабатываем коммиты пакетами для ограничения количества одновременных git-процессов
+        val batchSize = threadCount * 4
+        val batches = commits.chunked(batchSize)
 
-            val includeInConsole = if (days != null && generateHtml) {
-                isWithinDays(commit.date, days)
-            } else {
-                true
-            }
+        for (batch in batches) {
+            val results = batch.map { commit ->
+                async(dispatcher) {
+                    val isRoot = commit.hash in rootCommits
+                    val diff = gitClient.getDiffForCommit(commit.hash, isRoot)
 
-            if (includeInConsole) {
-                testsByAuthor.getOrPut(commit.authorEmail) { mutableListOf() }
-                    .addAll(newTests)
+                    val count = processed.incrementAndGet()
+                    if (count % 100 == 0 || count == total) {
+                        println("  Processing commit $count/$total...")
+                    }
+
+                    if (diff.isBlank()) {
+                        return@async CommitResult(emptyList(), commit)
+                    }
+
+                    // TestParser — каждый вызов findNewTests() работает
+                    // только с локальными переменными, создаём свой экземпляр
+                    val parser = TestParser()
+                    val newTests = parser.findNewTests(diff)
+
+                    val records = newTests.map { test ->
+                        TestRecord(
+                            authorEmail = commit.authorEmail,
+                            functionName = test.functionName,
+                            filePath = test.filePath,
+                            date = commit.date,
+                            systemId = test.systemId
+                        )
+                    }
+
+                    CommitResult(records, commit)
+                }
+            }.awaitAll()
+
+            // Собираем результаты последовательно (порядок не важен для статистики,
+            // но коллекции не thread-safe)
+            for (result in results) {
+                if (result.records.isNotEmpty()) {
+                    allTestRecords.addAll(result.records)
+
+                    val includeInConsole = if (days != null && generateHtml) {
+                        isWithinDays(result.commit.date, days)
+                    } else {
+                        true
+                    }
+
+                    if (includeInConsole) {
+                        val newTests = result.records.map { r ->
+                            NewTestInfo(r.functionName, r.filePath, r.systemId)
+                        }
+                        testsByAuthor.getOrPut(result.commit.authorEmail) { mutableListOf() }
+                            .addAll(newTests)
+                    }
+                }
             }
         }
     }
