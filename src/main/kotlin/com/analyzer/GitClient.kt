@@ -51,11 +51,16 @@ class GitClient(private val repoPath: String) {
         }
     }
 
+    /**
+     * Получает diff коммита с полным контекстом файла (-U999999),
+     * чтобы парсер всегда видел @System на уровне класса,
+     * даже если новый тест добавлен далеко от объявления класса.
+     */
     fun getDiffForCommit(commitHash: String, isRoot: Boolean): String {
         return if (isRoot) {
-            runGit("diff-tree", "--root", "-M", "-p", commitHash, "--", "*.kt")
+            runGit("diff-tree", "--root", "-M", "-U999999", "-p", commitHash, "--", "*.kt")
         } else {
-            runGit("diff-tree", "-M", "-p", commitHash, "--", "*.kt")
+            runGit("diff-tree", "-M", "-U999999", "-p", commitHash, "--", "*.kt")
         }
     }
 

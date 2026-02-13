@@ -44,8 +44,8 @@ class TestParserTest {
     }
 
     @Test
-    @DisplayName("Does NOT count renamed test where both @Test and fun are replaced")
-    fun doesNotCountRenamedTestFullReplace() {
+    @DisplayName("Counts renamed test as new when function name changes")
+    fun countsRenamedTestAsNew() {
         val diff = """
 +++ b/src/test/kotlin/MyTest.kt
 @@ -10,4 +10,4 @@
@@ -60,11 +60,32 @@ class TestParserTest {
         """.trimIndent()
 
         val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("newTestName", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Does NOT count test rewrite when function name stays the same")
+    fun doesNotCountRewriteWithSameName() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -10,4 +10,4 @@
+-    @Test
+-    fun sameTestName() {
+-        assertEquals(1, 1)
+-    }
++    @Test
++    fun sameTestName() {
++        assertEquals(2, 2)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
         assertEquals(0, results.size)
     }
 
     @Test
-    @DisplayName("Counts net new tests when one removed and two added in same hunk")
+    @DisplayName("Counts all truly new tests when removed test has different name")
     fun countsNetNewTests() {
         val diff = """
 +++ b/src/test/kotlin/MyTest.kt
@@ -81,8 +102,9 @@ class TestParserTest {
         """.trimIndent()
 
         val results = parser.findNewTests(diff)
-        assertEquals(1, results.size)
-        assertEquals("brandNewTest", results[0].functionName)
+        assertEquals(2, results.size)
+        assertEquals("replacementTest", results[0].functionName)
+        assertEquals("brandNewTest", results[1].functionName)
     }
 
     @Test

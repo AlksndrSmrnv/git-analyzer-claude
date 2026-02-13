@@ -15,10 +15,14 @@ class TestParser {
     /**
      * Находит по-настоящему НОВЫЕ тесты в diff-выводе git.
      *
-     * Алгоритм: в каждом hunk'е собираем тесты из добавленных строк (+)
-     * и тесты из удалённых строк (-). Новыми считаются только те добавленные
-     * тесты, для которых нет соответствующего удалённого теста в том же hunk'е.
+     * Алгоритм: собираем имена тестов из добавленных строк (+)
+     * и имена тестов из удалённых строк (-). Новыми считаются только те
+     * добавленные тесты, имя которых не встречается среди удалённых.
      * Это исключает переименования и рефакторинги.
+     *
+     * Сопоставление ведётся по имени функции, а не по счётчику,
+     * что корректно работает при полном контексте файла (-U999999),
+     * когда все изменения оказываются в одном hunk'е.
      *
      * Также извлекает @System("...") аннотацию — на уровне класса (наследуется
      * всеми тестами) или на уровне конкретного теста (переопределяет класс).
@@ -33,7 +37,7 @@ class TestParser {
 
         // Состояние для удалённых строк (-)
         var removedPendingAnnotation = false
-        var removedTestCount = 0
+        val removedTestNames = mutableSetOf<String>()
 
         // Состояние для @System
         var currentClassSystem: String? = null
@@ -41,14 +45,15 @@ class TestParser {
         var pendingTestSystem: String? = null
 
         fun flushHunk() {
-            // Количество действительно новых тестов = added - removed (но не меньше 0)
-            val netNew = (addedTests.size - removedTestCount).coerceAtLeast(0)
-            if (netNew > 0) {
-                // Берём последние netNew тестов из added (новые — те, что «не покрыты» удалениями)
-                results.addAll(addedTests.takeLast(netNew))
+            // Новыми считаются добавленные тесты, имя которых
+            // не встречается среди удалённых (исключаем переименования/перемещения)
+            for (test in addedTests) {
+                if (test.functionName !in removedTestNames) {
+                    results.add(test)
+                }
             }
             addedTests.clear()
-            removedTestCount = 0
+            removedTestNames.clear()
             addedPendingAnnotation = false
             removedPendingAnnotation = false
             pendingTestSystem = null
@@ -158,7 +163,8 @@ class TestParser {
                 val content = line.substring(1).trim()
 
                 if (hasTestAnnotationAndFun(content)) {
-                    removedTestCount++
+                    val funName = extractFunctionName(content)
+                    if (funName != null) removedTestNames.add(funName)
                     removedPendingAnnotation = false
                     continue
                 }
@@ -173,7 +179,8 @@ class TestParser {
                 }
 
                 if (removedPendingAnnotation && containsFunDeclaration(content)) {
-                    removedTestCount++
+                    val funName = extractFunctionName(content)
+                    if (funName != null) removedTestNames.add(funName)
                     removedPendingAnnotation = false
                     continue
                 }
