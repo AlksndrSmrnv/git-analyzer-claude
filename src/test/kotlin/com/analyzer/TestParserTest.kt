@@ -550,6 +550,203 @@ index abc1234..def5678 100644
         assertEquals("src/test/kotlin/SecondTest.kt", results[1].filePath)
     }
 
+    // ===== @System annotation detection =====
+
+    @Test
+    @DisplayName("Detects @System from class-level annotation (added lines)")
+    fun detectsSystemFromAddedClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,7 @@
++@System("CI001")
++class MyTest {
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI001", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Detects @System from class-level annotation (context class, added test)")
+    fun detectsSystemFromContextClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -10,0 +11,4 @@
+ @System("CI001")
+ class MyTest {
++    @Test
++    fun myTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI001", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Detects @System from test-level annotation (before @Test)")
+    fun detectsSystemBeforeTest() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,5 @@
++    @System("CI002")
++    @Test
++    fun myTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI002", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Detects @System from test-level annotation (between @Test and fun)")
+    fun detectsSystemBetweenTestAndFun() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,5 @@
++    @Test
++    @System("CI003")
++    fun myTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI003", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("@System with intermediate annotation lines between @Test and fun")
+    fun systemWithIntermediateAnnotations() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,7 @@
++    @Test
++    @DisplayName("should work")
++    @System("CI005")
++    @Timeout(5)
++    fun myTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI005", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Test-level @System overrides class-level @System")
+    fun testLevelSystemOverridesClassLevel() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,8 @@
++@System("CI001")
++class MyTest {
++    @System("CI002")
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI002", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("All tests inherit class-level @System")
+    fun allTestsInheritClassSystem() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,10 @@
++@System("CI001")
++class MyTest {
++    @Test
++    fun firstTest() {
++    }
++    @Test
++    fun secondTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("CI001", results[0].systemId)
+        assertEquals("CI001", results[1].systemId)
+    }
+
+    @Test
+    @DisplayName("No @System results in null systemId")
+    fun noSystemResultsInNull() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,5 @@
++class MyTest {
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertNull(results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Detects @System from Kotlin object declaration")
+    fun detectsSystemFromObject() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,7 @@
++@System("CI001")
++object MyTest {
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("myTest", results[0].functionName)
+        assertEquals("CI001", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Companion object does NOT reset class-level @System")
+    fun companionObjectDoesNotResetSystem() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,12 @@
++@System("CI001")
++class MyTest {
++    companion object {
++        @JvmStatic
++        fun setup() {}
++    }
++
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI001", results[0].systemId)
+    }
+
     @Test
     @DisplayName("Tests in nested class inherit @System from parent class (added lines)")
     fun nestedClassInheritsSystemFromParentAddedLines() {
@@ -620,11 +817,36 @@ index abc1234..def5678 100644
     }
 
     @Test
-    @DisplayName("Top-level class without @System correctly resets system to null")
+    @DisplayName("Two classes in one file each get their own @System")
+    fun twoClassesOwnSystem() {
+        val diff = """
++++ b/src/test/kotlin/Tests.kt
+@@ -0,0 +1,12 @@
++@System("CI001")
++class FirstTest {
++    @Test
++    fun testInFirst() {}
++}
++
++@System("CI002")
++class SecondTest {
++    @Test
++    fun testInSecond() {}
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("CI001", results[0].systemId)
+        assertEquals("CI002", results[1].systemId)
+    }
+
+    @Test
+    @DisplayName("Top-level class without @System resets system to null")
     fun topLevelClassWithoutSystemResetsToNull() {
         val diff = """
-+++ b/src/test/kotlin/MyTest.kt
-@@ -0,0 +1,8 @@
++++ b/src/test/kotlin/Tests.kt
+@@ -0,0 +1,10 @@
 +@System("CI01337")
 +class FirstTest {
 +    @Test
