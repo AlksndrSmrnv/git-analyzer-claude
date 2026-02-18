@@ -92,9 +92,14 @@ class TestParser {
                     lastSeenSystem = systemMatch.groupValues[1]
                 }
 
-                // Проверяем объявление класса
+                // Проверяем объявление класса.
+                // Вложенные классы (с отступом) без собственной @System
+                // наследуют currentClassSystem от родителя.
                 if (classDeclarationRegex.containsMatchIn(content)) {
-                    currentClassSystem = lastSeenSystem
+                    val isNested = line.getOrNull(1)?.isWhitespace() == true
+                    if (!isNested || lastSeenSystem != null) {
+                        currentClassSystem = lastSeenSystem
+                    }
                     lastSeenSystem = null
                 }
 
@@ -204,10 +209,15 @@ class TestParser {
                 lastSeenSystem = contextSystemMatch.groupValues[1]
             }
 
-            // Проверяем объявление класса на контекстных строках
+            // Проверяем объявление класса на контекстных строках.
+            // Вложенные классы (с отступом) без собственной @System
+            // наследуют currentClassSystem от родителя.
             val isContextClassDeclaration = classDeclarationRegex.containsMatchIn(contextContent)
             if (isContextClassDeclaration) {
-                currentClassSystem = lastSeenSystem
+                val isNested = line.getOrNull(1)?.isWhitespace() == true
+                if (!isNested || lastSeenSystem != null) {
+                    currentClassSystem = lastSeenSystem
+                }
                 lastSeenSystem = null
             }
 

@@ -549,4 +549,96 @@ index abc1234..def5678 100644
         assertEquals("src/test/kotlin/FirstTest.kt", results[0].filePath)
         assertEquals("src/test/kotlin/SecondTest.kt", results[1].filePath)
     }
+
+    @Test
+    @DisplayName("Tests in nested class inherit @System from parent class (added lines)")
+    fun nestedClassInheritsSystemFromParentAddedLines() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,10 @@
++@System("CI01337")
++class MyTest {
++    @Test
++    fun outerTest() {}
++    inner class Inner {
++        @Test
++        fun innerTest() {}
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("CI01337", results[0].systemId)
+        assertEquals("CI01337", results[1].systemId)
+    }
+
+    @Test
+    @DisplayName("Tests in nested class inherit @System from parent class (context lines)")
+    fun nestedClassInheritsSystemFromParentContextLines() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -1,8 +1,12 @@
+ @System("CI01337")
+ class MyTest {
+     @Nested
+     inner class Inner {
++        @Test
++        fun newInnerTest() {}
+     }
+ }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("newInnerTest", results[0].functionName)
+        assertEquals("CI01337", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Nested class with own @System overrides parent @System")
+    fun nestedClassOwnSystemOverridesParent() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,12 @@
++@System("CI01337")
++class MyTest {
++    @Test
++    fun outerTest() {}
++    @System("CI02000")
++    inner class Inner {
++        @Test
++        fun innerTest() {}
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("CI01337", results[0].systemId)
+        assertEquals("CI02000", results[1].systemId)
+    }
+
+    @Test
+    @DisplayName("Top-level class without @System correctly resets system to null")
+    fun topLevelClassWithoutSystemResetsToNull() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,8 @@
++@System("CI01337")
++class FirstTest {
++    @Test
++    fun test1() {}
++}
++class SecondTest {
++    @Test
++    fun test2() {}
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("CI01337", results[0].systemId)
+        assertNull(results[1].systemId)
+    }
 }
