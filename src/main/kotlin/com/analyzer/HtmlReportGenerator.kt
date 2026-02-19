@@ -87,6 +87,7 @@ ${buildCss()}
         <button class="period-btn" data-period="quarter">Квартал</button>
         <button class="period-btn" data-period="year">Последний год</button>
         <button class="period-btn" data-period="custom">Конкретный месяц</button>
+        <button class="period-btn" data-period="all">Всё время</button>
         <div class="custom-period" id="customPeriod" style="display:none">
             <select id="customMonth">
                 <option value="1">Январь</option>
@@ -427,6 +428,7 @@ function resolveSystemLabel(id) {
 function parseDate(iso) { return new Date(iso); }
 
 function filterByPeriod(records, periodType, cMonth, cYear, cQuarter) {
+    if (periodType === 'all') return records;
     const now = new Date();
     let start, end;
     switch (periodType) {
@@ -530,7 +532,7 @@ const MONTH_NAMES = [
 ];
 
 function formatLabel(key, periodType) {
-    if (periodType === 'year' || periodType === 'quarter') {
+    if (periodType === 'year' || periodType === 'quarter' || periodType === 'all') {
         const parts = key.split('-');
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
