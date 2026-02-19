@@ -436,8 +436,8 @@ tbody tr:hover { background: #f8f9fb; }
     font-weight: 700;
     color: #1a1a2e;
 }
-.velocity-value.trend-up { color: #16a34a; }
-.velocity-value.trend-down { color: #e11d48; }
+.velocity-value .trend-up { color: #16a34a; }
+.velocity-value .trend-down { color: #e11d48; }
 .heatmap-section {
     background: #fff;
     border-radius: 8px;
@@ -842,8 +842,9 @@ function getPrevPeriodFiltered(records, periodType, cMonth, cYear, cQuarter) {
             start = new Date(end); start.setDate(end.getDate() - 7);
             break;
         case 'month':
-            end = new Date(now); end.setDate(now.getDate() - 30);
-            start = new Date(end); start.setDate(end.getDate() - 30);
+            // Mirror filterByPeriod: current = [now-1month, now], prev = [now-2months, now-1month]
+            end = new Date(now); end.setMonth(now.getMonth() - 1);
+            start = new Date(now); start.setMonth(now.getMonth() - 2);
             break;
         case 'year':
             end = new Date(now); end.setFullYear(now.getFullYear() - 1);
