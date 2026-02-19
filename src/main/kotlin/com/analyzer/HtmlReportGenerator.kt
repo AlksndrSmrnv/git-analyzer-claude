@@ -926,11 +926,12 @@ function renderHeatmap() {
     container.style.display = '';
     noData.style.display = 'none';
 
+    const currentYear = new Date().getFullYear();
     const monthSet = new Set();
     DATA.forEach(r => {
         const ym = r.date.slice(0, 7);
         const year = parseInt(ym.slice(0, 4));
-        if (year === 2025 || year === 2026) monthSet.add(ym);
+        if (year === currentYear || year === currentYear - 1) monthSet.add(ym);
     });
     const months = [...monthSet].sort();
 
