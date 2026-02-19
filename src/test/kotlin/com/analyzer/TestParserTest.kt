@@ -1003,6 +1003,22 @@ class New_Tests : Tests {
     }
 
     @Test
+    @DisplayName("Helper method inside class is NOT counted as test when @Test precedes class declaration")
+    fun doesNotCountHelperWhenTestAnnotationPrecedesClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++@Test
++class SomeTestClass {
++    fun helperMethod() {}
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
     @DisplayName("Two classes in one file each get their own @System")
     fun twoClassesOwnSystem() {
         val diff = """

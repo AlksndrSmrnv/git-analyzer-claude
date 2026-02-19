@@ -102,6 +102,8 @@ class TestParser {
                         currentClassSystem = lastSeenSystem
                     }
                     lastSeenSystem = null
+                    addedPendingAnnotation = false
+                    pendingTestSystem = null
                     continue
                 }
 
