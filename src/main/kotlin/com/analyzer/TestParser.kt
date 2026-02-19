@@ -10,7 +10,7 @@ class TestParser {
 
     private val testAnnotations = setOf("@Test", "@ParameterizedTest", "@RepeatedTest")
     private val systemAnnotationRegex = Regex("""@System\("([^"]+)"\)""")
-    private val classDeclarationRegex = Regex("""\bclass\s+\w+""")
+    private val classDeclarationRegex = Regex("""\bclass\s+\w+|\bobject\s+\w+""")
 
     /**
      * Находит по-настоящему НОВЫЕ тесты в diff-выводе git.
@@ -95,7 +95,8 @@ class TestParser {
                 // Проверяем объявление класса.
                 // Вложенные классы (с отступом) без собственной @System
                 // наследуют currentClassSystem от родителя.
-                if (classDeclarationRegex.containsMatchIn(content)) {
+                // companion object не считается новым классом-контейнером.
+                if (classDeclarationRegex.containsMatchIn(content) && !content.contains("companion object")) {
                     val isNested = line.getOrNull(1)?.isWhitespace() == true
                     if (!isNested || lastSeenSystem != null) {
                         currentClassSystem = lastSeenSystem
@@ -213,7 +214,9 @@ class TestParser {
             // Проверяем объявление класса на контекстных строках.
             // Вложенные классы (с отступом) без собственной @System
             // наследуют currentClassSystem от родителя.
+            // companion object не считается новым классом-контейнером.
             val isContextClassDeclaration = classDeclarationRegex.containsMatchIn(contextContent)
+                && !contextContent.contains("companion object")
             if (isContextClassDeclaration) {
                 val isNested = line.getOrNull(1)?.isWhitespace() == true
                 if (!isNested || lastSeenSystem != null) {
