@@ -238,6 +238,97 @@ class TestParser {
         return results
     }
 
+    /**
+     * Парсит полное содержимое Kotlin-файла (не diff) и возвращает
+     * отображение functionName -> systemId для всех тестов, у которых
+     * есть @System (на уровне класса или метода). Тесты без @System
+     * в результат не включаются.
+     *
+     * Используется для обогащения записей, у которых systemId == null,
+     * когда @System был добавлен к классу в другом коммите.
+     */
+    fun extractSystemMapping(fileContent: String): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        var currentClassSystem: String? = null
+        var lastSeenSystem: String? = null
+        var pendingTestSystem: String? = null
+        var pendingAnnotation = false
+
+        for (line in fileContent.lines()) {
+            val content = line.trim()
+
+            val systemMatch = systemAnnotationRegex.find(content)
+            if (systemMatch != null) {
+                lastSeenSystem = systemMatch.groupValues[1]
+            }
+
+            if (classDeclarationRegex.containsMatchIn(content)) {
+                val isNested = line.firstOrNull()?.isWhitespace() == true
+                if (!isNested || lastSeenSystem != null) {
+                    currentClassSystem = lastSeenSystem
+                }
+                lastSeenSystem = null
+                pendingAnnotation = false
+                pendingTestSystem = null
+                continue
+            }
+
+            // @Test fun foo() на одной строке
+            if (hasTestAnnotationAndFun(content)) {
+                val funName = extractFunctionName(content)
+                if (funName != null) {
+                    val resolved = pendingTestSystem ?: lastSeenSystem ?: currentClassSystem
+                    if (resolved != null) result[funName] = resolved
+                }
+                lastSeenSystem = null
+                pendingAnnotation = false
+                pendingTestSystem = null
+                continue
+            }
+
+            if (isTestAnnotation(content)) {
+                pendingAnnotation = true
+                if (lastSeenSystem != null) {
+                    pendingTestSystem = lastSeenSystem
+                    lastSeenSystem = null
+                }
+                continue
+            }
+
+            if (pendingAnnotation && content.startsWith("@")) {
+                if (systemMatch != null) {
+                    pendingTestSystem = systemMatch.groupValues[1]
+                    lastSeenSystem = null
+                }
+                continue
+            }
+
+            if (pendingAnnotation && containsFunDeclaration(content)) {
+                val funName = extractFunctionName(content)
+                if (funName != null) {
+                    val resolved = pendingTestSystem ?: currentClassSystem
+                    if (resolved != null) result[funName] = resolved
+                }
+                pendingAnnotation = false
+                pendingTestSystem = null
+                continue
+            }
+
+            if (pendingAnnotation && content.isBlank()) continue
+
+            if (pendingAnnotation) {
+                pendingAnnotation = false
+                pendingTestSystem = null
+            }
+
+            if (systemMatch == null && !content.startsWith("@") && content.isNotBlank()) {
+                lastSeenSystem = null
+            }
+        }
+
+        return result
+    }
+
     private fun isTestAnnotation(content: String): Boolean {
         return testAnnotations.any { annotation ->
             content.startsWith(annotation) &&

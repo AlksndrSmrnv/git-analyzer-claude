@@ -113,6 +113,8 @@ fun main() {
         }
     }
 
+    enrichSystemIds(allTestRecords, gitClient)
+
     println()
     val periodLabel = if (days != null) "Last $days days" else "All time"
     val printer = ReportPrinter()
@@ -127,6 +129,53 @@ fun main() {
             authorNames = AnalyzerConfig.AUTHOR_NAMES
         )
         println("HTML report generated: $outputPath")
+    }
+}
+
+/**
+ * Второй проход: обогащает записи с systemId == null.
+ *
+ * Для каждого файла, в котором есть тесты без systemId, ищет коммиты,
+ * добавлявшие @System к классам в этом файле (через pickaxe-поиск).
+ * Для каждого такого коммита читает полное содержимое файла через git show
+ * и парсит маппинг functionName -> systemId. Обогащает записи по имени функции.
+ *
+ * Это решает случай, когда тест добавлен в одном коммите, а @System на классе —
+ * в другом. Работает даже если тест впоследствии был удалён.
+ */
+private fun enrichSystemIds(
+    records: MutableList<TestRecord>,
+    gitClient: GitClient
+) {
+    val nullRecordsByFile = records
+        .mapIndexedNotNull { idx, r -> if (r.systemId == null) idx to r else null }
+        .groupBy { (_, r) -> r.filePath }
+
+    if (nullRecordsByFile.isEmpty()) return
+
+    val parser = TestParser()
+
+    for ((filePath, indexedRecords) in nullRecordsByFile) {
+        val commits = gitClient.findCommitsTouchingSystemAnnotation(filePath)
+        if (commits.isEmpty()) continue
+
+        for (commitHash in commits) {
+            val stillNull = indexedRecords.filter { (idx, _) -> records[idx].systemId == null }
+            if (stillNull.isEmpty()) break
+
+            val content = gitClient.getFileContentAtCommit(commitHash, filePath)
+            if (content.isBlank()) continue
+
+            val mapping = parser.extractSystemMapping(content)
+            if (mapping.isEmpty()) continue
+
+            for ((idx, record) in stillNull) {
+                val systemId = mapping[record.functionName]
+                if (systemId != null) {
+                    records[idx] = records[idx].copy(systemId = systemId)
+                }
+            }
+        }
     }
 }
 

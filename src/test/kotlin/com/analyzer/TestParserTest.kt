@@ -619,6 +619,146 @@ index abc1234..def5678 100644
         assertEquals("CI02000", results[1].systemId)
     }
 
+    // ===== extractSystemMapping tests =====
+
+    @Test
+    @DisplayName("extractSystemMapping: class with @System maps all test functions")
+    fun extractSystemMappingBasicClass() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun firstTest() {}
+
+    @Test
+    fun secondTest() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals(2, mapping.size)
+        assertEquals("CI01337", mapping["firstTest"])
+        assertEquals("CI01337", mapping["secondTest"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: class without @System returns empty map")
+    fun extractSystemMappingNoSystem() {
+        val fileContent = """
+class MyTest {
+    @Test
+    fun someTest() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertTrue(mapping.isEmpty())
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: nested class without own @System inherits parent @System")
+    fun extractSystemMappingNestedInherits() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun outerTest() {}
+    inner class Inner {
+        @Test
+        fun innerTest() {}
+    }
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("CI01337", mapping["outerTest"])
+        assertEquals("CI01337", mapping["innerTest"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: nested class with own @System overrides parent")
+    fun extractSystemMappingNestedOverrides() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun outerTest() {}
+    @System("CI02000")
+    inner class Inner {
+        @Test
+        fun innerTest() {}
+    }
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("CI01337", mapping["outerTest"])
+        assertEquals("CI02000", mapping["innerTest"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: per-test @System overrides class @System")
+    fun extractSystemMappingPerTestOverride() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun normalTest() {}
+
+    @System("CI02000")
+    @Test
+    fun overriddenTest() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("CI01337", mapping["normalTest"])
+        assertEquals("CI02000", mapping["overriddenTest"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: second class without @System has no entry in map")
+    fun extractSystemMappingTwoClasses() {
+        val fileContent = """
+@System("CI01337")
+class FirstTest {
+    @Test
+    fun test1() {}
+}
+class SecondTest {
+    @Test
+    fun test2() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals(1, mapping.size)
+        assertEquals("CI01337", mapping["test1"])
+        assertNull(mapping["test2"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: handles backtick function names")
+    fun extractSystemMappingBacktickName() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun `should do something`() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("CI01337", mapping["`should do something`"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: blank content returns empty map")
+    fun extractSystemMappingBlankContent() {
+        val mapping = parser.extractSystemMapping("")
+        assertTrue(mapping.isEmpty())
+    }
+
     @Test
     @DisplayName("Top-level class without @System correctly resets system to null")
     fun topLevelClassWithoutSystemResetsToNull() {
