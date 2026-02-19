@@ -88,7 +88,7 @@ class GitClient(private val repoPath: String) {
      */
     fun getFileContentAtCommit(commitHash: String, filePath: String): String {
         return try {
-            runGit("show", "$commitHash:$filePath")
+            runGit("show", "$commitHash:$filePath", suppressErrors = true)
         } catch (e: Exception) {
             ""
         }
@@ -105,7 +105,7 @@ class GitClient(private val repoPath: String) {
         return output.trim().split(" ").size == 1
     }
 
-    private fun runGit(vararg args: String): String {
+    private fun runGit(vararg args: String, suppressErrors: Boolean = false): String {
         val command = listOf("git", "-C", repoPath) + args.toList()
         val process = ProcessBuilder(command)
             .redirectErrorStream(false)
@@ -117,7 +117,7 @@ class GitClient(private val repoPath: String) {
             val stdout = process.inputStream.bufferedReader().use { it.readText() }
             val exitCode = process.waitFor()
             val stderr = stderrFuture.get()
-            if (exitCode != 0 && stderr.isNotBlank()) {
+            if (!suppressErrors && exitCode != 0 && stderr.isNotBlank()) {
                 System.err.println("Git error: $stderr")
             }
             return stdout.trim()

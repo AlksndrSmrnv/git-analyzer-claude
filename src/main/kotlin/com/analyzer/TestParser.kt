@@ -102,6 +102,9 @@ class TestParser {
                         currentClassSystem = lastSeenSystem
                     }
                     lastSeenSystem = null
+                    addedPendingAnnotation = false
+                    pendingTestSystem = null
+                    continue
                 }
 
                 // @Test fun foo() на одной строке

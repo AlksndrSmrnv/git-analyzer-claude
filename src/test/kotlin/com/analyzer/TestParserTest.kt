@@ -957,6 +957,68 @@ class MyTest {
     }
 
     @Test
+    @DisplayName("extractSystemMapping: multiple annotations before class, @System is not last")
+    fun extractSystemMappingMultipleAnnotationsBeforeClass() {
+        val fileContent = """
+@ApiTest
+@Tag("C1337")
+@System("C1337")
+@Stand
+class New_Tests : Tests {
+    @Test
+    @Link("1234")
+    @DisplayName("test 1333")
+    fun test1333() {
+    }
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("C1337", mapping["test1333"])
+    }
+
+    @Test
+    @DisplayName("findNewTests: multiple annotations before class, @System is not last (diff)")
+    fun findNewTestsMultipleAnnotationsBeforeClass() {
+        val diff = """
++++ b/src/test/kotlin/New_Tests.kt
+@@ -0,0 +1,11 @@
++@ApiTest
++@Tag("C1337")
++@System("C1337")
++@Stand
++class New_Tests : Tests {
++    @Test
++    @Link("1234")
++    @DisplayName("test 1333")
++    fun test1333() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("test1333", results[0].functionName)
+        assertEquals("C1337", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Helper method inside class is NOT counted as test when @Test precedes class declaration")
+    fun doesNotCountHelperWhenTestAnnotationPrecedesClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++@Test
++class SomeTestClass {
++    fun helperMethod() {}
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(0, results.size)
+    }
+
+    @Test
     @DisplayName("Two classes in one file each get their own @System")
     fun twoClassesOwnSystem() {
         val diff = """
