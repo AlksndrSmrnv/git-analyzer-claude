@@ -456,21 +456,24 @@ tbody tr:hover { background: #f8f9fb; }
     color: #666;
     text-align: center;
     padding: 4px 2px;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    height: 72px;
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
 }
 .heatmap-row-label {
     font-size: 12px;
     color: #444;
     white-space: nowrap;
-    padding-right: 8px;
+    padding-right: 12px;
     display: flex;
     align-items: center;
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 .heatmap-cell {
-    width: 36px;
+    width: 40px;
     height: 28px;
     border-radius: 3px;
     display: flex;
@@ -924,7 +927,11 @@ function renderHeatmap() {
     noData.style.display = 'none';
 
     const monthSet = new Set();
-    DATA.forEach(r => monthSet.add(r.date.slice(0, 7)));
+    DATA.forEach(r => {
+        const ym = r.date.slice(0, 7);
+        const year = parseInt(ym.slice(0, 4));
+        if (year === 2025 || year === 2026) monthSet.add(ym);
+    });
     const months = [...monthSet].sort();
 
     const counts = {};
@@ -952,7 +959,7 @@ function renderHeatmap() {
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
 
-    const cols = 'auto ' + months.map(() => '36px').join(' ');
+    const cols = 'minmax(160px, auto) ' + months.map(() => '40px').join(' ');
     let html = '<div class="heatmap-grid" style="grid-template-columns:' + cols + '">';
 
     // Header row
