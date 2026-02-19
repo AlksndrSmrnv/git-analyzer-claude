@@ -939,9 +939,11 @@ function renderHeatmap() {
         counts[s] = {};
         months.forEach(m => { counts[s][m] = 0; });
     });
+    const monthsSet = new Set(months);
     DATA.forEach(r => {
-        if (r.system && counts[r.system] !== undefined) {
-            counts[r.system][r.date.slice(0, 7)]++;
+        const ym = r.date.slice(0, 7);
+        if (r.system && counts[r.system] !== undefined && monthsSet.has(ym)) {
+            counts[r.system][ym]++;
         }
     });
 
