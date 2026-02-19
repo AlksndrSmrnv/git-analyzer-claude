@@ -64,6 +64,36 @@ class GitClient(private val repoPath: String) {
         }
     }
 
+    /**
+     * Возвращает хэши коммитов (от старого к новому), в которых
+     * в данном файле добавлялась/менялась аннотация @System(.
+     * Использует pickaxe-поиск, чтобы находить изменения даже если
+     * тест уже удалён из файла.
+     */
+    fun findCommitsTouchingSystemAnnotation(filePath: String): List<String> {
+        return try {
+            val output = runGit(
+                "log", "--all", "--reverse", "--format=%H",
+                "-S", "@System(", "--", filePath
+            )
+            output.lines().map { it.trim() }.filter { it.isNotBlank() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Возвращает полное содержимое файла на момент указанного коммита.
+     * Возвращает пустую строку, если файл не существовал в этом коммите.
+     */
+    fun getFileContentAtCommit(commitHash: String, filePath: String): String {
+        return try {
+            runGit("show", "$commitHash:$filePath")
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     /** Обратная совместимость: определяет root сам (медленнее). */
     fun getDiffForCommit(commitHash: String): String {
         val isRoot = isRootCommit(commitHash)
