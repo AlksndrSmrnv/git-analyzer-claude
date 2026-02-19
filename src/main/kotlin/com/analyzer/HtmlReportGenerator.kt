@@ -123,6 +123,21 @@ ${buildCss()}
         </div>
     </div>
 
+    <div class="velocity-section">
+        <div class="velocity-card">
+            <div class="velocity-label">Всего тестов</div>
+            <div class="velocity-value" id="vcTotalValue">—</div>
+        </div>
+        <div class="velocity-card">
+            <div class="velocity-label">Тестов в неделю</div>
+            <div class="velocity-value" id="vcWeeklyValue">—</div>
+        </div>
+        <div class="velocity-card">
+            <div class="velocity-label">К предыдущему периоду</div>
+            <div class="velocity-value" id="vcTrendValue">—</div>
+        </div>
+    </div>
+
     <div class="summary-section">
         <h2>Сводка</h2>
         <table id="summaryTable">
@@ -179,6 +194,12 @@ ${buildCss()}
         <h2>Авторы × Системы</h2>
         <div class="chart-container">
             <canvas id="systemChart"></canvas>
+        </div>
+
+        <h2>Активность по системам и месяцам</h2>
+        <div class="heatmap-section">
+            <div id="heatmapContainer"></div>
+            <p class="no-data" id="noHeatmapData" style="display:none">Нет данных по системам.</p>
         </div>
     </div>
 
@@ -392,6 +413,88 @@ tbody tr:hover { background: #f8f9fb; }
     font-size: 11px;
     font-weight: 500;
     margin-left: 8px;
+}
+.velocity-section {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+.velocity-card {
+    flex: 1;
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.velocity-label {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+}
+.velocity-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+.velocity-value.trend-up { color: #16a34a; }
+.velocity-value.trend-down { color: #e11d48; }
+.heatmap-section {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow-x: auto;
+    margin-bottom: 16px;
+}
+.heatmap-grid {
+    display: grid;
+    gap: 3px;
+}
+.heatmap-header-cell {
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    text-align: center;
+    padding: 4px 2px;
+    white-space: nowrap;
+}
+.heatmap-row-label {
+    font-size: 12px;
+    color: #444;
+    white-space: nowrap;
+    padding-right: 8px;
+    display: flex;
+    align-items: center;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.heatmap-cell {
+    width: 36px;
+    height: 28px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: default;
+    position: relative;
+}
+.heatmap-cell:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-size: 11px;
+    z-index: 10;
+    pointer-events: none;
 }
 </style>"""
     }
@@ -730,6 +833,149 @@ function renderSystemChart(bySystem) {
     });
 }
 
+function getPrevPeriodFiltered(records, periodType, cMonth, cYear, cQuarter) {
+    const now = new Date();
+    let start, end;
+    switch (periodType) {
+        case 'week':
+            end = new Date(now); end.setDate(now.getDate() - 7);
+            start = new Date(end); start.setDate(end.getDate() - 7);
+            break;
+        case 'month':
+            end = new Date(now); end.setDate(now.getDate() - 30);
+            start = new Date(end); start.setDate(end.getDate() - 30);
+            break;
+        case 'year':
+            end = new Date(now); end.setFullYear(now.getFullYear() - 1);
+            start = new Date(end); start.setFullYear(end.getFullYear() - 1);
+            break;
+        case 'custom': {
+            const pm = cMonth - 2; // cMonth is 1-based, -1 gives prev month index (0-based), so -2 then +1 = -1 step back
+            const py = pm < 0 ? cYear - 1 : cYear;
+            const pm2 = ((pm % 12) + 12) % 12; // Jan(1) -> pm=-1 -> py=cYear-1, pm2=11 (Dec) ✓
+            start = new Date(py, pm2, 1);
+            end = new Date(py, pm2 + 1, 0, 23, 59, 59, 999);
+            break;
+        }
+        case 'quarter': {
+            let pq = cQuarter - 1;
+            let py = cYear;
+            if (pq < 1) { pq = 4; py = cYear - 1; }
+            const qStartMonth = (pq - 1) * 3;
+            start = new Date(py, qStartMonth, 1);
+            end = new Date(py, qStartMonth + 3, 0, 23, 59, 59, 999);
+            break;
+        }
+        default:
+            return [];
+    }
+    return records.filter(r => {
+        const d = new Date(r.date);
+        return d >= start && d <= end;
+    });
+}
+
+function renderVelocity(filtered, periodType, cMonth, cYear, cQuarter, systemFilter) {
+    const total = filtered.length;
+    const periodWeeks = { week: 1, month: 4.3, quarter: 13, year: 52, custom: 4.3 };
+    const weeks = periodWeeks[periodType] || 1;
+    const perWeek = (total / weeks).toFixed(1);
+
+    let prevFiltered = getPrevPeriodFiltered(DATA, periodType, cMonth, cYear, cQuarter);
+    if (systemFilter !== 'all') {
+        prevFiltered = prevFiltered.filter(r => r.system === systemFilter);
+    }
+    const prevTotal = prevFiltered.length;
+
+    let trendHtml;
+    if (prevTotal === 0 && total === 0) {
+        trendHtml = '\u2014';
+    } else if (prevTotal === 0) {
+        trendHtml = '<span class="trend-up">+\u221e \u25b2</span>';
+    } else {
+        const delta = total - prevTotal;
+        const pct = Math.round(delta / prevTotal * 100);
+        const sign = delta >= 0 ? '+' : '';
+        const cls = delta >= 0 ? 'trend-up' : 'trend-down';
+        const arrow = delta >= 0 ? '\u25b2' : '\u25bc';
+        trendHtml = '<span class="' + cls + '">' + sign + pct + '% ' + arrow + '</span>';
+    }
+
+    document.getElementById('vcTotalValue').textContent = total;
+    document.getElementById('vcWeeklyValue').textContent = perWeek;
+    document.getElementById('vcTrendValue').innerHTML = trendHtml;
+}
+
+function renderHeatmap() {
+    const container = document.getElementById('heatmapContainer');
+    const noData = document.getElementById('noHeatmapData');
+
+    const systemSet = new Set();
+    DATA.forEach(r => { if (r.system) systemSet.add(r.system); });
+    const systems = [...systemSet].sort();
+
+    if (systems.length === 0) {
+        container.style.display = 'none';
+        noData.style.display = 'block';
+        return;
+    }
+    container.style.display = '';
+    noData.style.display = 'none';
+
+    const monthSet = new Set();
+    DATA.forEach(r => monthSet.add(r.date.slice(0, 7)));
+    const months = [...monthSet].sort();
+
+    const counts = {};
+    systems.forEach(s => {
+        counts[s] = {};
+        months.forEach(m => { counts[s][m] = 0; });
+    });
+    DATA.forEach(r => {
+        if (r.system && counts[r.system] !== undefined) {
+            counts[r.system][r.date.slice(0, 7)]++;
+        }
+    });
+
+    const allValues = systems.flatMap(s => months.map(m => counts[s][m]));
+    const maxCount = Math.max(...allValues, 1);
+
+    function getHeatColor(count) {
+        if (count === 0) return 'background:#f5f7fa;color:#ccc;';
+        const opacity = Math.max(0.15, count / maxCount);
+        return 'background:rgba(37,99,235,' + opacity.toFixed(2) + ');color:' + (opacity > 0.5 ? '#fff' : '#1e3a8a') + ';';
+    }
+
+    function fmtMonth(ym) {
+        const parts = ym.split('-');
+        return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
+    }
+
+    const cols = 'auto ' + months.map(() => '36px').join(' ');
+    let html = '<div class="heatmap-grid" style="grid-template-columns:' + cols + '">';
+
+    // Header row
+    html += '<div class="heatmap-header-cell"></div>';
+    months.forEach(m => {
+        html += '<div class="heatmap-header-cell">' + escapeHtml(fmtMonth(m)) + '</div>';
+    });
+
+    // Data rows
+    systems.forEach(s => {
+        const label = resolveSystemLabel(s);
+        html += '<div class="heatmap-row-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>';
+        months.forEach(m => {
+            const c = counts[s][m];
+            html += '<div class="heatmap-cell" style="' + getHeatColor(c) + '" data-tip="' +
+                escapeHtml(label + ': ' + c + ' (' + fmtMonth(m) + ')') + '">' +
+                (c > 0 ? c : '') + '</div>';
+        });
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 function renderDetails(byAuthor) {
     const container = document.getElementById('detailsList');
     if (Object.keys(byAuthor).length === 0) {
@@ -797,6 +1043,8 @@ function updateReport(periodType) {
         renderSystemCountChart(bySystem);
         renderSystemChart(bySystem);
     }
+
+    renderVelocity(filtered, periodType, cMonth, effectiveYear, cQuarter, systemFilter);
 }
 
 // --- \u0418\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f ---
@@ -817,6 +1065,7 @@ function updateReport(periodType) {
     }
 
     populateSystemFilter(DATA);
+    renderHeatmap();
 
     document.getElementById('systemFilter').addEventListener('change', () => {
         updateReport(currentPeriod);
