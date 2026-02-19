@@ -532,7 +532,7 @@ const MONTH_NAMES = [
 ];
 
 function formatLabel(key, periodType) {
-    if (periodType === 'year' || periodType === 'quarter') {
+    if (periodType === 'year' || periodType === 'quarter' || periodType === 'all') {
         const parts = key.split('-');
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
