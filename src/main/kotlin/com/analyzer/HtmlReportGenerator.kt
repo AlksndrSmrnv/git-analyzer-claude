@@ -629,7 +629,12 @@ function renderSystemsTable(bySystem) {
     const table = document.getElementById('systemsTable');
     const noData = document.getElementById('noSystemData');
 
-    const entries = Object.entries(bySystem).filter(([sys]) => sys !== '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
+    const OTHER_KEY = '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    const known = Object.entries(bySystem).filter(([sys]) => sys !== OTHER_KEY);
+    const other = bySystem[OTHER_KEY];
+
+    // Все записи: сначала известные системы, в конце — «Другое»
+    const entries = other ? [...known, ['\u0414\u0440\u0443\u0433\u043e\u0435', other]] : known;
 
     if (entries.length === 0) {
         table.style.display = 'none';
@@ -640,14 +645,17 @@ function renderSystemsTable(bySystem) {
     noData.style.display = 'none';
 
     body.innerHTML = entries.map(([system, tests]) => {
+        const isOther = system === '\u0414\u0440\u0443\u0433\u043e\u0435';
         const authorCounts = {};
         tests.forEach(t => { authorCounts[t.author] = (authorCounts[t.author] || 0) + 1; });
         const authorSummary = Object.entries(authorCounts)
             .sort((a, b) => b[1] - a[1])
             .map(([a, c]) => escapeHtml(a) + ' (' + c + ')')
             .join(', ');
-        return '<tr><td><code>' + escapeHtml(system) + '</code></td><td>' +
-               tests.length + '</td><td>' + authorSummary + '</td></tr>';
+        const cell = isOther
+            ? '<td><em>\u0414\u0440\u0443\u0433\u043e\u0435</em></td>'
+            : '<td><code>' + escapeHtml(system) + '</code></td>';
+        return '<tr>' + cell + '<td>' + tests.length + '</td><td>' + authorSummary + '</td></tr>';
     }).join('');
 }
 
@@ -655,7 +663,10 @@ function renderSystemCountChart(bySystem) {
     const ctx = document.getElementById('systemCountChart').getContext('2d');
     if (systemCountChart) systemCountChart.destroy();
 
-    const entries = Object.entries(bySystem).filter(([sys]) => sys !== '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
+    const OTHER_KEY = '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    const known = Object.entries(bySystem).filter(([sys]) => sys !== OTHER_KEY);
+    const other = bySystem[OTHER_KEY];
+    const entries = other ? [...known, ['\u0414\u0440\u0443\u0433\u043e\u0435', other]] : known;
 
     if (entries.length === 0) {
         systemCountChart = new Chart(ctx, {
@@ -692,7 +703,10 @@ function renderSystemChart(bySystem) {
     const ctx = document.getElementById('systemChart').getContext('2d');
     if (systemChart) systemChart.destroy();
 
-    const entries = Object.entries(bySystem).filter(([sys]) => sys !== '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430');
+    const OTHER_KEY = '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    const known = Object.entries(bySystem).filter(([sys]) => sys !== OTHER_KEY);
+    const other = bySystem[OTHER_KEY];
+    const entries = other ? [...known, ['\u0414\u0440\u0443\u0433\u043e\u0435', other]] : known;
 
     if (entries.length === 0) {
         systemChart = new Chart(ctx, {
