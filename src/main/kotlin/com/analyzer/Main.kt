@@ -1,16 +1,13 @@
 package com.analyzer
 
 import kotlinx.coroutines.*
-import java.time.OffsetDateTime
-import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Результат обработки одного коммита.
  */
 private data class CommitResult(
-    val records: List<TestRecord>,
-    val commit: CommitInfo
+    val records: List<TestRecord>
 )
 
 fun main() {
@@ -26,11 +23,7 @@ fun main() {
         return
     }
 
-    val commits = if (generateHtml) {
-        gitClient.getCommits(sinceDays = null)
-    } else {
-        gitClient.getCommits(sinceDays = days)
-    }
+    val commits = gitClient.getCommits(sinceDays = null)
 
     if (commits.isEmpty()) {
         println("No commits found.")
@@ -42,8 +35,6 @@ fun main() {
     val rootCommits = gitClient.findRootCommits()
 
     val allTestRecords = mutableListOf<TestRecord>()
-    val testsByAuthor = mutableMapOf<String, MutableList<NewTestInfo>>()
-
     val processed = AtomicInteger(0)
     val total = commits.size
 
@@ -67,7 +58,7 @@ fun main() {
                     }
 
                     if (diff.isBlank()) {
-                        return@async CommitResult(emptyList(), commit)
+                        return@async CommitResult(emptyList())
                     }
 
                     // TestParser — каждый вызов findNewTests() работает
@@ -85,35 +76,24 @@ fun main() {
                         )
                     }
 
-                    CommitResult(records, commit)
+                    CommitResult(records)
                 }
             }.awaitAll()
 
-            // Собираем результаты последовательно (порядок не важен для статистики,
-            // но коллекции не thread-safe)
+            // Собираем результаты последовательно: порядок git log нужен,
+            // чтобы финальный dedup оставлял самую позднюю запись.
             for (result in results) {
                 if (result.records.isNotEmpty()) {
                     allTestRecords.addAll(result.records)
-
-                    val includeInConsole = if (days != null && generateHtml) {
-                        isWithinDays(result.commit.date, days)
-                    } else {
-                        true
-                    }
-
-                    if (includeInConsole) {
-                        val newTests = result.records.map { r ->
-                            NewTestInfo(r.functionName, r.filePath, r.systemId)
-                        }
-                        testsByAuthor.getOrPut(result.commit.authorEmail) { mutableListOf() }
-                            .addAll(newTests)
-                    }
                 }
             }
         }
     }
 
     enrichSystemIds(allTestRecords, gitClient)
+    val dedupedRecords = deduplicateLatestTests(allTestRecords)
+    val consoleRecords = filterRecordsWithinDays(dedupedRecords, days)
+    val testsByAuthor = buildTestsByAuthor(consoleRecords)
 
     println()
     val periodLabel = if (days != null) "Last $days days" else "All time"
@@ -124,7 +104,7 @@ fun main() {
         val outputPath = AnalyzerConfig.HTML_REPORT_PATH
         val htmlGenerator = HtmlReportGenerator()
         htmlGenerator.generate(
-            allTestRecords, repoPath, outputPath,
+            dedupedRecords, repoPath, outputPath,
             systemNames = AnalyzerConfig.SYSTEM_NAMES,
             authorNames = AnalyzerConfig.AUTHOR_NAMES
         )
@@ -176,15 +156,5 @@ private fun enrichSystemIds(
                 }
             }
         }
-    }
-}
-
-private fun isWithinDays(isoDate: String, days: Int): Boolean {
-    return try {
-        val commitDate = OffsetDateTime.parse(isoDate).toLocalDate()
-        val cutoff = LocalDate.now().minusDays(days.toLong())
-        !commitDate.isBefore(cutoff)
-    } catch (e: Exception) {
-        true
     }
 }
