@@ -99,12 +99,26 @@ class HtmlReportGenerator {
     private fun copyChartJs(target: File) {
         val resourcePath = "/report-assets/chart.umd.js"
         val input = javaClass.getResourceAsStream(resourcePath)
-            ?: error("Missing bundled report asset: $resourcePath")
-        input.use { source ->
-            target.outputStream().use { output ->
-                source.copyTo(output)
+        if (input != null) {
+            input.use { source ->
+                target.outputStream().use { output ->
+                    source.copyTo(output)
+                }
             }
+            return
         }
+
+        findLocalChartJs()?.copyTo(target, overwrite = true)
+            ?: error("Missing bundled report asset: $resourcePath")
+    }
+
+    private fun findLocalChartJs(): File? {
+        val userDir = File(System.getProperty("user.dir"))
+        val candidates = listOf(
+            File(userDir, "src/main/resources/report-assets/chart.umd.js"),
+            File(userDir, "git-analyzer-claude/src/main/resources/report-assets/chart.umd.js")
+        )
+        return candidates.firstOrNull { it.isFile }
     }
 
     private fun buildHtml(
