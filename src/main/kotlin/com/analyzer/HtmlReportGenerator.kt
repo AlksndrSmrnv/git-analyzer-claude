@@ -1,6 +1,9 @@
 package com.analyzer
 
 import java.io.File
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 class HtmlReportGenerator {
 
@@ -14,7 +17,9 @@ class HtmlReportGenerator {
         val jsonData = serializeToJson(records)
         val systemNamesJson = serializeMapToJson(systemNames)
         val authorNamesJson = serializeMapToJson(authorNames)
-        val html = buildHtml(jsonData, systemNamesJson, authorNamesJson, repoPath)
+        val generatedAt = ZonedDateTime.now(ZoneId.of("Europe/Moscow"))
+            .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss XXX"))
+        val html = buildHtml(jsonData, systemNamesJson, authorNamesJson, repoPath, generatedAt)
         File(outputPath).writeText(html, Charsets.UTF_8)
     }
 
@@ -63,7 +68,8 @@ class HtmlReportGenerator {
         jsonData: String,
         systemNamesJson: String,
         authorNamesJson: String,
-        repoPath: String
+        repoPath: String,
+        generatedAt: String
     ): String {
         return """<!DOCTYPE html>
 <html lang="ru">
@@ -79,6 +85,7 @@ ${buildCss()}
 <div class="container">
     <h1>Отчёт по автоматизации тестов</h1>
     <p class="repo-path">Репозиторий: <code>${escapeHtml(repoPath)}</code></p>
+    <p class="generated-at">Сформирован: ${escapeHtml(generatedAt)}</p>
 
     <div class="period-selector">
         <span class="period-label">Период:</span>
@@ -255,13 +262,17 @@ h2 {
 }
 .repo-path {
     color: #555;
-    margin-bottom: 24px;
+    margin-bottom: 4px;
 }
 .repo-path code {
     background: #e8ecf1;
     padding: 2px 8px;
     border-radius: 4px;
     font-size: 14px;
+}
+.generated-at {
+    color: #555;
+    margin-bottom: 24px;
 }
 .period-selector {
     display: flex;
