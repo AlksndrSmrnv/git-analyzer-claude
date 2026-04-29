@@ -10,7 +10,7 @@ class HtmlReportGenerator {
     fun generate(
         records: List<TestRecord>,
         repoPath: String,
-        outputPath: String,
+        outputDir: String,
         systemNames: Map<String, String> = emptyMap(),
         authorNames: Map<String, String> = emptyMap()
     ) {
@@ -19,8 +19,27 @@ class HtmlReportGenerator {
         val authorNamesJson = serializeMapToJson(authorNames)
         val generatedAt = ZonedDateTime.now(ZoneId.of("Europe/Moscow"))
             .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss XXX"))
-        val html = buildHtml(jsonData, systemNamesJson, authorNamesJson, repoPath, generatedAt)
-        File(outputPath).writeText(html, Charsets.UTF_8)
+
+        val reportDir = File(outputDir)
+        if (reportDir.exists() && !reportDir.isDirectory) {
+            error("HTML report path is not a directory: $outputDir")
+        }
+        val assetsDir = File(reportDir, "assets")
+        if (assetsDir.exists() && !assetsDir.isDirectory) {
+            error("HTML report assets path is not a directory: ${assetsDir.path}")
+        }
+        if (!assetsDir.exists() && !assetsDir.mkdirs()) {
+            error("Unable to create HTML report assets directory: ${assetsDir.path}")
+        }
+
+        File(reportDir, "index.html").writeText(buildHtml(repoPath, generatedAt), Charsets.UTF_8)
+        File(assetsDir, "report.css").writeText(buildCss(), Charsets.UTF_8)
+        File(assetsDir, "report.js").writeText(buildJavaScript(), Charsets.UTF_8)
+        File(assetsDir, "report-data.js").writeText(
+            buildDataJavaScript(jsonData, systemNamesJson, authorNamesJson),
+            Charsets.UTF_8
+        )
+        copyChartJs(File(assetsDir, "chart.umd.js"))
     }
 
     private fun serializeToJson(records: List<TestRecord>): String {
@@ -64,10 +83,31 @@ class HtmlReportGenerator {
             .replace("/", "\\/")
     }
 
-    private fun buildHtml(
+    private fun buildDataJavaScript(
         jsonData: String,
         systemNamesJson: String,
-        authorNamesJson: String,
+        authorNamesJson: String
+    ): String {
+        return """window.REPORT_DATA = {
+    records: $jsonData,
+    systemNames: $systemNamesJson,
+    authorNames: $authorNamesJson
+};
+"""
+    }
+
+    private fun copyChartJs(target: File) {
+        val resourcePath = "/report-assets/chart.umd.js"
+        val input = javaClass.getResourceAsStream(resourcePath)
+            ?: error("Missing bundled report asset: $resourcePath")
+        input.use { source ->
+            target.outputStream().use { output ->
+                source.copyTo(output)
+            }
+        }
+    }
+
+    private fun buildHtml(
         repoPath: String,
         generatedAt: String
     ): String {
@@ -77,8 +117,10 @@ class HtmlReportGenerator {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Отчёт по автоматизации тестов</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
-${buildCss()}
+<link rel="stylesheet" href="assets/report.css">
+<script defer src="assets/chart.umd.js"></script>
+<script defer src="assets/report-data.js"></script>
+<script defer src="assets/report.js"></script>
 </head>
 <body>
 
@@ -95,7 +137,7 @@ ${buildCss()}
         <button class="period-btn" data-period="year">Последний год</button>
         <button class="period-btn" data-period="custom">Конкретный месяц</button>
         <button class="period-btn" data-period="all">Всё время</button>
-        <div class="custom-period" id="customPeriod" style="display:none">
+        <div class="custom-period is-hidden" id="customPeriod">
             <select id="customMonth">
                 <option value="1">Январь</option>
                 <option value="2">Февраль</option>
@@ -113,7 +155,7 @@ ${buildCss()}
             <select id="customYear"></select>
             <button class="apply-btn" id="applyCustom">Показать</button>
         </div>
-        <div class="custom-period" id="quarterPeriod" style="display:none">
+        <div class="custom-period is-hidden" id="quarterPeriod">
             <select id="quarterSelect">
                 <option value="1">Q1 (Янв–Мар)</option>
                 <option value="2">Q2 (Апр–Июн)</option>
@@ -165,7 +207,7 @@ ${buildCss()}
                 </tr>
             </tfoot>
         </table>
-        <p class="no-data" id="noData" style="display:none">Нет данных за выбранный период.</p>
+        <p class="no-data is-hidden" id="noData">Нет данных за выбранный период.</p>
     </div>
 
     <div class="charts-section">
@@ -182,7 +224,7 @@ ${buildCss()}
 
     <div class="systems-section">
         <h2>Тесты по системам</h2>
-        <table id="systemsTable" style="display:none">
+        <table id="systemsTable" class="is-hidden">
             <thead>
                 <tr>
                     <th>Система</th>
@@ -192,7 +234,7 @@ ${buildCss()}
             </thead>
             <tbody id="systemsBody"></tbody>
         </table>
-        <p class="no-data" id="noSystemData" style="display:none">Нет данных по системам за выбранный период.</p>
+        <p class="no-data is-hidden" id="noSystemData">Нет данных по системам за выбранный период.</p>
 
         <h2>Количество тестов по системам</h2>
         <div class="chart-container">
@@ -207,7 +249,7 @@ ${buildCss()}
         <h2>Активность по системам и месяцам</h2>
         <div class="heatmap-section">
             <div id="heatmapContainer"></div>
-            <p class="no-data" id="noHeatmapData" style="display:none">Нет данных по системам.</p>
+            <p class="no-data is-hidden" id="noHeatmapData">Нет данных по системам.</p>
         </div>
     </div>
 
@@ -216,13 +258,6 @@ ${buildCss()}
         <div id="detailsList"></div>
     </div>
 </div>
-
-<script>
-const DATA = $jsonData;
-const SYSTEM_NAMES = $systemNamesJson;
-const AUTHOR_NAMES = $authorNamesJson;
-${buildJavaScript()}
-</script>
 
 </body>
 </html>"""
@@ -237,13 +272,16 @@ ${buildJavaScript()}
     }
 
     private fun buildCss(): String {
-        return """<style>
+        return """
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: #f5f7fa;
     color: #1a1a2e;
     line-height: 1.6;
+}
+.is-hidden {
+    display: none !important;
 }
 .container {
     max-width: 1100px;
@@ -458,9 +496,24 @@ tbody tr:hover { background: #f8f9fb; }
     overflow-x: auto;
     margin-bottom: 16px;
 }
-.heatmap-grid {
-    display: grid;
-    gap: 3px;
+.heatmap-table {
+    width: auto;
+    border-collapse: separate;
+    border-spacing: 3px;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+}
+.heatmap-table thead th,
+.heatmap-table tbody th,
+.heatmap-table tbody td {
+    border: 0;
+    padding: 0;
+}
+.heatmap-table thead th {
+    background: transparent;
+    border-bottom: 0;
 }
 .heatmap-header-cell {
     font-size: 11px;
@@ -496,6 +549,16 @@ tbody tr:hover { background: #f8f9fb; }
     cursor: default;
     position: relative;
 }
+.heatmap-level-0 { background: #f5f7fa; color: #ccc; }
+.heatmap-level-1 { background: rgba(37,99,235,0.15); color: #1e3a8a; }
+.heatmap-level-2 { background: rgba(37,99,235,0.25); color: #1e3a8a; }
+.heatmap-level-3 { background: rgba(37,99,235,0.35); color: #1e3a8a; }
+.heatmap-level-4 { background: rgba(37,99,235,0.45); color: #1e3a8a; }
+.heatmap-level-5 { background: rgba(37,99,235,0.55); color: #fff; }
+.heatmap-level-6 { background: rgba(37,99,235,0.65); color: #fff; }
+.heatmap-level-7 { background: rgba(37,99,235,0.75); color: #fff; }
+.heatmap-level-8 { background: rgba(37,99,235,0.85); color: #fff; }
+.heatmap-level-9 { background: rgba(37,99,235,0.95); color: #fff; }
 .heatmap-cell:hover::after {
     content: attr(data-tip);
     position: absolute;
@@ -511,7 +574,7 @@ tbody tr:hover { background: #f8f9fb; }
     z-index: 10;
     pointer-events: none;
 }
-</style>"""
+"""
     }
 
     private fun buildJavaScript(): String {
@@ -527,6 +590,15 @@ let timelineChart = null;
 let systemChart = null;
 let systemCountChart = null;
 let currentPeriod = 'week';
+
+const REPORT_DATA = window.REPORT_DATA || { records: [], systemNames: {}, authorNames: {} };
+const DATA = REPORT_DATA.records || [];
+const SYSTEM_NAMES = REPORT_DATA.systemNames || {};
+const AUTHOR_NAMES = REPORT_DATA.authorNames || {};
+
+function setHidden(element, hidden) {
+    element.classList.toggle('is-hidden', hidden);
+}
 
 function resolveAuthor(email) {
     return AUTHOR_NAMES[email] || email;
@@ -667,12 +739,12 @@ function renderTable(byAuthor) {
     const total = entries.reduce((s, e) => s + e[1].length, 0);
 
     if (entries.length === 0) {
-        table.style.display = 'none';
-        noData.style.display = 'block';
+        setHidden(table, true);
+        setHidden(noData, false);
         return;
     }
-    table.style.display = '';
-    noData.style.display = 'none';
+    setHidden(table, false);
+    setHidden(noData, true);
 
     body.innerHTML = entries.map(([author, tests]) => {
         const pct = total > 0 ? (tests.length / total * 100).toFixed(1) : '0.0';
@@ -756,12 +828,12 @@ function renderSystemsTable(bySystem) {
     const entries = other ? [...known, ['\u0414\u0440\u0443\u0433\u043e\u0435', other]] : known;
 
     if (entries.length === 0) {
-        table.style.display = 'none';
-        noData.style.display = 'block';
+        setHidden(table, true);
+        setHidden(noData, false);
         return;
     }
-    table.style.display = '';
-    noData.style.display = 'none';
+    setHidden(table, false);
+    setHidden(noData, true);
 
     body.innerHTML = entries.map(([system, tests]) => {
         const isOther = system === '\u0414\u0440\u0443\u0433\u043e\u0435';
@@ -946,12 +1018,12 @@ function renderHeatmap() {
     const systems = [...systemSet].sort();
 
     if (systems.length === 0) {
-        container.style.display = 'none';
-        noData.style.display = 'block';
+        setHidden(container, true);
+        setHidden(noData, false);
         return;
     }
-    container.style.display = '';
-    noData.style.display = 'none';
+    setHidden(container, false);
+    setHidden(noData, true);
 
     const currentYear = new Date().getFullYear();
     const monthSet = new Set();
@@ -978,10 +1050,9 @@ function renderHeatmap() {
     const allValues = systems.flatMap(s => months.map(m => counts[s][m]));
     const maxCount = Math.max(...allValues, 1);
 
-    function getHeatColor(count) {
-        if (count === 0) return 'background:#f5f7fa;color:#ccc;';
-        const opacity = Math.max(0.15, count / maxCount);
-        return 'background:rgba(37,99,235,' + opacity.toFixed(2) + ');color:' + (opacity > 0.5 ? '#fff' : '#1e3a8a') + ';';
+    function getHeatLevel(count) {
+        if (count === 0) return 0;
+        return Math.max(1, Math.ceil(count / maxCount * 9));
     }
 
     function fmtMonth(ym) {
@@ -989,28 +1060,28 @@ function renderHeatmap() {
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
 
-    const cols = 'minmax(160px, auto) ' + months.map(() => '40px').join(' ');
-    let html = '<div class="heatmap-grid" style="grid-template-columns:' + cols + '">';
+    let html = '<table class="heatmap-table"><thead><tr>';
 
-    // Header row
-    html += '<div class="heatmap-header-cell"></div>';
+    html += '<th class="heatmap-header-cell"></th>';
     months.forEach(m => {
-        html += '<div class="heatmap-header-cell">' + escapeHtml(fmtMonth(m)) + '</div>';
+        html += '<th class="heatmap-header-cell" scope="col">' + escapeHtml(fmtMonth(m)) + '</th>';
     });
+    html += '</tr></thead><tbody>';
 
-    // Data rows
     systems.forEach(s => {
         const label = resolveSystemLabel(s);
-        html += '<div class="heatmap-row-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>';
+        html += '<tr><th class="heatmap-row-label" scope="row" title="' +
+            escapeHtml(label) + '">' + escapeHtml(label) + '</th>';
         months.forEach(m => {
             const c = counts[s][m];
-            html += '<div class="heatmap-cell" style="' + getHeatColor(c) + '" data-tip="' +
+            html += '<td class="heatmap-cell heatmap-level-' + getHeatLevel(c) + '" data-tip="' +
                 escapeHtml(label + ': ' + c + ' (' + fmtMonth(m) + ')') + '">' +
-                (c > 0 ? c : '') + '</div>';
+                (c > 0 ? c : '') + '</td>';
         });
+        html += '</tr>';
     });
 
-    html += '</div>';
+    html += '</tbody></table>';
     container.innerHTML = html;
 }
 
@@ -1114,10 +1185,8 @@ function updateReport(periodType) {
             document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             const period = btn.dataset.period;
-            document.getElementById('customPeriod').style.display =
-                period === 'custom' ? 'flex' : 'none';
-            document.getElementById('quarterPeriod').style.display =
-                period === 'quarter' ? 'flex' : 'none';
+            setHidden(document.getElementById('customPeriod'), period !== 'custom');
+            setHidden(document.getElementById('quarterPeriod'), period !== 'quarter');
             if (period !== 'custom' && period !== 'quarter') updateReport(period);
         });
     });
