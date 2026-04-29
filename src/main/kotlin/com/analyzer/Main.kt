@@ -101,14 +101,14 @@ fun main() {
     printer.printReport(testsByAuthor, periodLabel, repoPath)
 
     if (generateHtml) {
-        val outputPath = AnalyzerConfig.HTML_REPORT_PATH
+        val outputDir = AnalyzerConfig.HTML_REPORT_DIR
         val htmlGenerator = HtmlReportGenerator()
         htmlGenerator.generate(
-            dedupedRecords, repoPath, outputPath,
+            dedupedRecords, repoPath, outputDir,
             systemNames = AnalyzerConfig.SYSTEM_NAMES,
             authorNames = AnalyzerConfig.AUTHOR_NAMES
         )
-        println("HTML report generated: $outputPath")
+        println("HTML report generated: $outputDir/index.html")
     }
 }
 

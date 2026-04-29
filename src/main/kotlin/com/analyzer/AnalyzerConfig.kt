@@ -15,8 +15,8 @@ object AnalyzerConfig {
     /** Генерировать ли HTML-отчёт */
     val GENERATE_HTML = true
 
-    /** Путь для сохранения HTML-отчёта */
-    val HTML_REPORT_PATH = "test-report.html"
+    /** Директория для сохранения HTML-отчёта */
+    val HTML_REPORT_DIR = "test-report"
 
     /**
      * Количество потоков для параллельного анализа коммитов.
