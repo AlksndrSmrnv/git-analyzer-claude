@@ -510,25 +510,35 @@ tbody tr:hover { background: #f8f9fb; }
     overflow-x: auto;
     margin-bottom: 16px;
 }
-.heatmap-table {
-    width: auto;
-    border-collapse: separate;
-    border-spacing: 3px;
-    background: transparent;
-    border-radius: 0;
-    box-shadow: none;
-    overflow: visible;
+.heatmap-grid {
+    display: grid;
+    gap: 3px;
 }
-.heatmap-table thead th,
-.heatmap-table tbody th,
-.heatmap-table tbody td {
-    border: 0;
-    padding: 0;
-}
-.heatmap-table thead th {
-    background: transparent;
-    border-bottom: 0;
-}
+.heatmap-months-0 { grid-template-columns: minmax(160px, auto); }
+.heatmap-months-1 { grid-template-columns: minmax(160px, auto) repeat(1, 40px); }
+.heatmap-months-2 { grid-template-columns: minmax(160px, auto) repeat(2, 40px); }
+.heatmap-months-3 { grid-template-columns: minmax(160px, auto) repeat(3, 40px); }
+.heatmap-months-4 { grid-template-columns: minmax(160px, auto) repeat(4, 40px); }
+.heatmap-months-5 { grid-template-columns: minmax(160px, auto) repeat(5, 40px); }
+.heatmap-months-6 { grid-template-columns: minmax(160px, auto) repeat(6, 40px); }
+.heatmap-months-7 { grid-template-columns: minmax(160px, auto) repeat(7, 40px); }
+.heatmap-months-8 { grid-template-columns: minmax(160px, auto) repeat(8, 40px); }
+.heatmap-months-9 { grid-template-columns: minmax(160px, auto) repeat(9, 40px); }
+.heatmap-months-10 { grid-template-columns: minmax(160px, auto) repeat(10, 40px); }
+.heatmap-months-11 { grid-template-columns: minmax(160px, auto) repeat(11, 40px); }
+.heatmap-months-12 { grid-template-columns: minmax(160px, auto) repeat(12, 40px); }
+.heatmap-months-13 { grid-template-columns: minmax(160px, auto) repeat(13, 40px); }
+.heatmap-months-14 { grid-template-columns: minmax(160px, auto) repeat(14, 40px); }
+.heatmap-months-15 { grid-template-columns: minmax(160px, auto) repeat(15, 40px); }
+.heatmap-months-16 { grid-template-columns: minmax(160px, auto) repeat(16, 40px); }
+.heatmap-months-17 { grid-template-columns: minmax(160px, auto) repeat(17, 40px); }
+.heatmap-months-18 { grid-template-columns: minmax(160px, auto) repeat(18, 40px); }
+.heatmap-months-19 { grid-template-columns: minmax(160px, auto) repeat(19, 40px); }
+.heatmap-months-20 { grid-template-columns: minmax(160px, auto) repeat(20, 40px); }
+.heatmap-months-21 { grid-template-columns: minmax(160px, auto) repeat(21, 40px); }
+.heatmap-months-22 { grid-template-columns: minmax(160px, auto) repeat(22, 40px); }
+.heatmap-months-23 { grid-template-columns: minmax(160px, auto) repeat(23, 40px); }
+.heatmap-months-24 { grid-template-columns: minmax(160px, auto) repeat(24, 40px); }
 .heatmap-header-cell {
     font-size: 11px;
     font-weight: 600;
@@ -1074,28 +1084,26 @@ function renderHeatmap() {
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
 
-    let html = '<table class="heatmap-table"><thead><tr>';
+    let html = '<div class="heatmap-grid heatmap-months-' + months.length + '">';
 
-    html += '<th class="heatmap-header-cell"></th>';
+    html += '<div class="heatmap-header-cell"></div>';
     months.forEach(m => {
-        html += '<th class="heatmap-header-cell" scope="col">' + escapeHtml(fmtMonth(m)) + '</th>';
+        html += '<div class="heatmap-header-cell">' + escapeHtml(fmtMonth(m)) + '</div>';
     });
-    html += '</tr></thead><tbody>';
 
     systems.forEach(s => {
         const label = resolveSystemLabel(s);
-        html += '<tr><th class="heatmap-row-label" scope="row" title="' +
-            escapeHtml(label) + '">' + escapeHtml(label) + '</th>';
+        html += '<div class="heatmap-row-label" title="' +
+            escapeHtml(label) + '">' + escapeHtml(label) + '</div>';
         months.forEach(m => {
             const c = counts[s][m];
-            html += '<td class="heatmap-cell heatmap-level-' + getHeatLevel(c) + '" data-tip="' +
+            html += '<div class="heatmap-cell heatmap-level-' + getHeatLevel(c) + '" data-tip="' +
                 escapeHtml(label + ': ' + c + ' (' + fmtMonth(m) + ')') + '">' +
-                (c > 0 ? c : '') + '</td>';
+                (c > 0 ? c : '') + '</div>';
         });
-        html += '</tr>';
     });
 
-    html += '</tbody></table>';
+    html += '</div>';
     container.innerHTML = html;
 }
 
