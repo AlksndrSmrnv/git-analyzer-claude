@@ -5,7 +5,13 @@ import java.time.OffsetDateTime
 
 internal fun deduplicateLatestTests(records: List<TestRecord>): List<TestRecord> {
     val seenFunctionNames = mutableSetOf<String>()
-    return records.filter { record -> seenFunctionNames.add(record.functionName) }
+    return records.withIndex()
+        .sortedWith(
+            compareByDescending<IndexedValue<TestRecord>> { parseRecordDate(it.value.date) }
+                .thenBy { it.index }
+        )
+        .map { it.value }
+        .filter { record -> seenFunctionNames.add(record.functionName) }
 }
 
 internal fun filterRecordsWithinDays(
@@ -35,4 +41,12 @@ internal fun buildTestsByAuthor(records: List<TestRecord>): Map<String, List<New
     }
 
     return testsByAuthor
+}
+
+private fun parseRecordDate(value: String): OffsetDateTime? {
+    return try {
+        OffsetDateTime.parse(value)
+    } catch (e: Exception) {
+        null
+    }
 }

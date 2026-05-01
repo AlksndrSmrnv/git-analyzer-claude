@@ -37,6 +37,34 @@ class AnalysisPostProcessorTest {
     }
 
     @Test
+    @DisplayName("Dedup chooses latest date even when records arrive out of order")
+    fun dedupChoosesLatestDateOutOfOrder() {
+        val records = listOf(
+            TestRecord(
+                authorEmail = "old@author.com",
+                functionName = "sameNameTest",
+                filePath = "src/test/kotlin/OldClassTest.kt",
+                date = "2026-01-10T10:00:00Z",
+                systemId = "CI001"
+            ),
+            TestRecord(
+                authorEmail = "new@author.com",
+                functionName = "sameNameTest",
+                filePath = "src/test/kotlin/NewClassTest.kt",
+                date = "2026-04-02T10:00:00Z",
+                systemId = "CI002"
+            )
+        )
+
+        val result = deduplicateLatestTests(records)
+
+        assertEquals(1, result.size)
+        assertEquals("new@author.com", result[0].authorEmail)
+        assertEquals("src/test/kotlin/NewClassTest.kt", result[0].filePath)
+        assertEquals("CI002", result[0].systemId)
+    }
+
+    @Test
     @DisplayName("Period filter is applied to the deduplicated records")
     fun periodFilterUsesDeduplicatedRecords() {
         val records = listOf(

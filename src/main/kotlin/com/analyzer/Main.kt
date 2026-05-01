@@ -23,7 +23,7 @@ fun main() {
         return
     }
 
-    val commits = gitClient.getCommits(sinceDays = null)
+    val commits = gitClient.getCommits()
 
     if (commits.isEmpty()) {
         println("No commits found.")

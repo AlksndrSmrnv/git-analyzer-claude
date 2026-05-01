@@ -816,6 +816,36 @@ index abc1234..def5678 100644
         assertEquals("CI02000", results[1].systemId)
     }
 
+    @Test
+    @DisplayName("Tests after nested class return to parent @System")
+    fun testsAfterNestedClassUseParentSystem() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,16 @@
++@System("CI01337")
++class MyTest {
++    @Test
++    fun outerBefore() {}
++
++    @System("CI02000")
++    inner class Inner {
++        @Test
++        fun innerTest() {}
++    }
++
++    @Test
++    fun outerAfter() {}
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(3, results.size)
+        assertEquals("CI01337", results[0].systemId)
+        assertEquals("CI02000", results[1].systemId)
+        assertEquals("CI01337", results[2].systemId)
+    }
+
     // ===== extractSystemMapping tests =====
 
     @Test
@@ -891,6 +921,33 @@ class MyTest {
         val mapping = parser.extractSystemMapping(fileContent)
         assertEquals("CI01337", mapping["outerTest"])
         assertEquals("CI02000", mapping["innerTest"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: tests after nested class return to parent @System")
+    fun extractSystemMappingReturnsToParentAfterNestedClass() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun outerBefore() {}
+
+    @System("CI02000")
+    inner class Inner {
+        @Test
+        fun innerTest() {}
+    }
+
+    @Test
+    fun outerAfter() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+
+        assertEquals("CI01337", mapping["outerBefore"])
+        assertEquals("CI02000", mapping["innerTest"])
+        assertEquals("CI01337", mapping["outerAfter"])
     }
 
     @Test

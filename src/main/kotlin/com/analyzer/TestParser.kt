@@ -12,6 +12,8 @@ class TestParser {
     private val systemAnnotationRegex = Regex("""@System\("([^"]+)"\)""")
     private val classDeclarationRegex = Regex("""\bclass\s+\w+|\bobject\s+\w+""")
 
+    private data class ClassScope(val depth: Int, val systemId: String?)
+
     /**
      * Находит по-настоящему НОВЫЕ тесты в diff-выводе git.
      *
@@ -40,9 +42,77 @@ class TestParser {
         val removedTestNames = mutableSetOf<String>()
 
         // Состояние для @System
-        var currentClassSystem: String? = null
+        val classScopes = mutableListOf<ClassScope>()
+        var braceDepth = 0
+        var pendingClassDeclaration = false
+        var pendingClassSystem: String? = null
         var lastSeenSystem: String? = null
         var pendingTestSystem: String? = null
+
+        fun currentClassSystem(): String? = classScopes.lastOrNull()?.systemId
+
+        fun popClosedClasses() {
+            while (classScopes.isNotEmpty() && braceDepth < classScopes.last().depth) {
+                classScopes.removeAt(classScopes.lastIndex)
+            }
+        }
+
+        fun countCharOutsideStrings(content: String, target: Char): Int {
+            var count = 0
+            var inString = false
+            var escaped = false
+            for (ch in content) {
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (ch == '\\' && inString) {
+                    escaped = true
+                    continue
+                }
+                if (ch == '"') {
+                    inString = !inString
+                    continue
+                }
+                if (!inString && ch == target) count++
+            }
+            return count
+        }
+
+        fun updateBraceDepth(content: String) {
+            val opens = countCharOutsideStrings(content, '{')
+            val closes = countCharOutsideStrings(content, '}')
+            val previousDepth = braceDepth
+            braceDepth = (braceDepth + opens - closes).coerceAtLeast(0)
+            if (pendingClassDeclaration && opens > 0) {
+                classScopes.add(ClassScope(previousDepth + 1, pendingClassSystem))
+                pendingClassDeclaration = false
+                pendingClassSystem = null
+            }
+            popClosedClasses()
+        }
+
+        fun handleClassDeclaration(content: String, line: String, hasDiffPrefix: Boolean): Boolean {
+            val isClassDeclaration = classDeclarationRegex.containsMatchIn(content)
+                && !content.contains("companion object")
+            if (!isClassDeclaration) return false
+
+            val indentIndex = if (hasDiffPrefix) 1 else 0
+            val isNested = braceDepth > 0 || line.getOrNull(indentIndex)?.isWhitespace() == true
+            val resolvedSystem = if (!isNested) lastSeenSystem else lastSeenSystem ?: currentClassSystem()
+            val opensClassBody = countCharOutsideStrings(content, '{') > 0
+            if (opensClassBody) {
+                classScopes.add(ClassScope(braceDepth + 1, resolvedSystem))
+            } else {
+                pendingClassDeclaration = true
+                pendingClassSystem = resolvedSystem
+            }
+            lastSeenSystem = null
+            addedPendingAnnotation = false
+            pendingTestSystem = null
+            updateBraceDepth(content)
+            return true
+        }
 
         fun flushHunk() {
             // Новыми считаются добавленные тесты, имя которых
@@ -65,7 +135,10 @@ class TestParser {
             if (line.startsWith("+++ b/")) {
                 flushHunk()
                 currentFile = line.removePrefix("+++ b/")
-                currentClassSystem = null
+                classScopes.clear()
+                braceDepth = 0
+                pendingClassDeclaration = false
+                pendingClassSystem = null
                 lastSeenSystem = null
                 pendingTestSystem = null
                 continue
@@ -96,14 +169,7 @@ class TestParser {
                 // Вложенные классы (с отступом) без собственной @System
                 // наследуют currentClassSystem от родителя.
                 // companion object не считается новым классом-контейнером.
-                if (classDeclarationRegex.containsMatchIn(content) && !content.contains("companion object")) {
-                    val isNested = line.getOrNull(1)?.isWhitespace() == true
-                    if (!isNested || lastSeenSystem != null) {
-                        currentClassSystem = lastSeenSystem
-                    }
-                    lastSeenSystem = null
-                    addedPendingAnnotation = false
-                    pendingTestSystem = null
+                if (handleClassDeclaration(content, line, hasDiffPrefix = true)) {
                     continue
                 }
 
@@ -111,12 +177,13 @@ class TestParser {
                 if (hasTestAnnotationAndFun(content)) {
                     val funName = extractFunctionName(content)
                     if (funName != null && currentFile != null) {
-                        val resolvedSystem = pendingTestSystem ?: lastSeenSystem ?: currentClassSystem
+                        val resolvedSystem = pendingTestSystem ?: lastSeenSystem ?: currentClassSystem()
                         addedTests.add(NewTestInfo(funName, currentFile, resolvedSystem))
                         lastSeenSystem = null
                     }
                     addedPendingAnnotation = false
                     pendingTestSystem = null
+                    updateBraceDepth(content)
                     continue
                 }
 
@@ -141,11 +208,12 @@ class TestParser {
                 if (addedPendingAnnotation && containsFunDeclaration(content)) {
                     val funName = extractFunctionName(content)
                     if (funName != null && currentFile != null) {
-                        val resolvedSystem = pendingTestSystem ?: currentClassSystem
+                        val resolvedSystem = pendingTestSystem ?: currentClassSystem()
                         addedTests.add(NewTestInfo(funName, currentFile, resolvedSystem))
                     }
                     addedPendingAnnotation = false
                     pendingTestSystem = null
+                    updateBraceDepth(content)
                     continue
                 }
 
@@ -164,6 +232,7 @@ class TestParser {
                 if (systemMatch == null && !content.startsWith("@") && content.isNotBlank()) {
                     lastSeenSystem = null
                 }
+                updateBraceDepth(content)
                 continue
             }
 
@@ -219,12 +288,8 @@ class TestParser {
             // companion object не считается новым классом-контейнером.
             val isContextClassDeclaration = classDeclarationRegex.containsMatchIn(contextContent)
                 && !contextContent.contains("companion object")
-            if (isContextClassDeclaration) {
-                val isNested = line.getOrNull(1)?.isWhitespace() == true
-                if (!isNested || lastSeenSystem != null) {
-                    currentClassSystem = lastSeenSystem
-                }
-                lastSeenSystem = null
+            if (handleClassDeclaration(contextContent, line, hasDiffPrefix = true)) {
+                continue
             }
 
             if (contextSystemMatch == null && !isContextClassDeclaration
@@ -236,6 +301,7 @@ class TestParser {
             addedPendingAnnotation = false
             pendingTestSystem = null
             removedPendingAnnotation = false
+            updateBraceDepth(contextContent)
         }
 
         // Последний hunk
@@ -255,10 +321,56 @@ class TestParser {
      */
     fun extractSystemMapping(fileContent: String): Map<String, String> {
         val result = mutableMapOf<String, String>()
-        var currentClassSystem: String? = null
+        val classScopes = mutableListOf<ClassScope>()
+        var braceDepth = 0
+        var pendingClassDeclaration = false
+        var pendingClassSystem: String? = null
         var lastSeenSystem: String? = null
         var pendingTestSystem: String? = null
         var pendingAnnotation = false
+
+        fun currentClassSystem(): String? = classScopes.lastOrNull()?.systemId
+
+        fun popClosedClasses() {
+            while (classScopes.isNotEmpty() && braceDepth < classScopes.last().depth) {
+                classScopes.removeAt(classScopes.lastIndex)
+            }
+        }
+
+        fun countCharOutsideStrings(content: String, target: Char): Int {
+            var count = 0
+            var inString = false
+            var escaped = false
+            for (ch in content) {
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (ch == '\\' && inString) {
+                    escaped = true
+                    continue
+                }
+                if (ch == '"') {
+                    inString = !inString
+                    continue
+                }
+                if (!inString && ch == target) count++
+            }
+            return count
+        }
+
+        fun updateBraceDepth(content: String) {
+            val opens = countCharOutsideStrings(content, '{')
+            val closes = countCharOutsideStrings(content, '}')
+            val previousDepth = braceDepth
+            braceDepth = (braceDepth + opens - closes).coerceAtLeast(0)
+            if (pendingClassDeclaration && opens > 0) {
+                classScopes.add(ClassScope(previousDepth + 1, pendingClassSystem))
+                pendingClassDeclaration = false
+                pendingClassSystem = null
+            }
+            popClosedClasses()
+        }
 
         for (line in fileContent.lines()) {
             val content = line.trim()
@@ -268,14 +380,19 @@ class TestParser {
                 lastSeenSystem = systemMatch.groupValues[1]
             }
 
-            if (classDeclarationRegex.containsMatchIn(content)) {
-                val isNested = line.firstOrNull()?.isWhitespace() == true
-                if (!isNested || lastSeenSystem != null) {
-                    currentClassSystem = lastSeenSystem
+            if (classDeclarationRegex.containsMatchIn(content) && !content.contains("companion object")) {
+                val isNested = braceDepth > 0 || line.firstOrNull()?.isWhitespace() == true
+                val resolvedSystem = if (!isNested) lastSeenSystem else lastSeenSystem ?: currentClassSystem()
+                if (countCharOutsideStrings(content, '{') > 0) {
+                    classScopes.add(ClassScope(braceDepth + 1, resolvedSystem))
+                } else {
+                    pendingClassDeclaration = true
+                    pendingClassSystem = resolvedSystem
                 }
                 lastSeenSystem = null
                 pendingAnnotation = false
                 pendingTestSystem = null
+                updateBraceDepth(content)
                 continue
             }
 
@@ -283,12 +400,13 @@ class TestParser {
             if (hasTestAnnotationAndFun(content)) {
                 val funName = extractFunctionName(content)
                 if (funName != null) {
-                    val resolved = pendingTestSystem ?: lastSeenSystem ?: currentClassSystem
+                    val resolved = pendingTestSystem ?: lastSeenSystem ?: currentClassSystem()
                     if (resolved != null) result[funName] = resolved
                 }
                 lastSeenSystem = null
                 pendingAnnotation = false
                 pendingTestSystem = null
+                updateBraceDepth(content)
                 continue
             }
 
@@ -312,11 +430,12 @@ class TestParser {
             if (pendingAnnotation && containsFunDeclaration(content)) {
                 val funName = extractFunctionName(content)
                 if (funName != null) {
-                    val resolved = pendingTestSystem ?: currentClassSystem
+                    val resolved = pendingTestSystem ?: currentClassSystem()
                     if (resolved != null) result[funName] = resolved
                 }
                 pendingAnnotation = false
                 pendingTestSystem = null
+                updateBraceDepth(content)
                 continue
             }
 
@@ -330,6 +449,7 @@ class TestParser {
             if (systemMatch == null && !content.startsWith("@") && content.isNotBlank()) {
                 lastSeenSystem = null
             }
+            updateBraceDepth(content)
         }
 
         return result
