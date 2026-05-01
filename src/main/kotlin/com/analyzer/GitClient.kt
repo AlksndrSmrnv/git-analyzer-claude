@@ -19,11 +19,8 @@ class GitClient(private val repoPath: String) {
         }
     }
 
-    fun getCommits(sinceDays: Int?): List<CommitInfo> {
+    fun getCommits(): List<CommitInfo> {
         val args = mutableListOf("log", "--format=%H %aE %aI", "--no-merges")
-        if (sinceDays != null) {
-            args.add("--since=$sinceDays days ago")
-        }
         args.add("--")
         args.add("*.kt")
 
