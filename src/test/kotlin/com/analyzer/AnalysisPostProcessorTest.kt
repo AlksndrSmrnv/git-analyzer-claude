@@ -94,6 +94,44 @@ class AnalysisPostProcessorTest {
     }
 
     @Test
+    @DisplayName("Period filter keeps exactly N calendar days including today (no off-by-one)")
+    fun periodFilterExactWindow() {
+        // today = 2026-04-10, days = 7 → окно [2026-04-04 .. 2026-04-10] = 7 дней
+        val records = listOf(
+            TestRecord("a@x.com", "today", "f.kt", "2026-04-10T10:00:00Z"),
+            TestRecord("a@x.com", "startOfWindow", "f.kt", "2026-04-04T10:00:00Z"),
+            TestRecord("a@x.com", "dayBeforeWindow", "f.kt", "2026-04-03T10:00:00Z")
+        )
+
+        val result = filterRecordsWithinDays(
+            records,
+            days = 7,
+            currentDate = LocalDate.parse("2026-04-10")
+        )
+
+        assertEquals(2, result.size)
+        assertEquals(listOf("today", "startOfWindow"), result.map { it.functionName })
+    }
+
+    @Test
+    @DisplayName("days=1 keeps only today")
+    fun periodFilterSingleDay() {
+        val records = listOf(
+            TestRecord("a@x.com", "today", "f.kt", "2026-04-10T05:00:00Z"),
+            TestRecord("a@x.com", "yesterday", "f.kt", "2026-04-09T23:59:00Z")
+        )
+
+        val result = filterRecordsWithinDays(
+            records,
+            days = 1,
+            currentDate = LocalDate.parse("2026-04-10")
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("today", result[0].functionName)
+    }
+
+    @Test
     @DisplayName("Records with different function names are preserved")
     fun keepsDifferentFunctionNames() {
         val records = listOf(

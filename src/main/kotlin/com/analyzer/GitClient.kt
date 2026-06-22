@@ -8,9 +8,24 @@ data class CommitInfo(
     val date: String
 )
 
-class GitClient(private val repoPath: String) {
+/**
+ * Разбирает вывод `git log --format=%H%x00%aE%x00%aI` (NUL-разделитель)
+ * в список [CommitInfo]. Вынесен отдельно для unit-тестирования парсинга
+ * без запуска реального git.
+ */
+internal fun parseCommitLines(output: String): List<CommitInfo> {
+    if (output.isBlank()) return emptyList()
+    return output.lines().mapNotNull { line ->
+        val parts = line.split('\u0000')
+        if (parts.size == 3) {
+            CommitInfo(hash = parts[0], authorEmail = parts[1], date = parts[2])
+        } else null
+    }
+}
 
-    fun validateRepo(): Boolean {
+class GitClient(private val repoPath: String) : GitOperations {
+
+    override fun validateRepo(): Boolean {
         return try {
             val output = runGit("rev-parse", "--is-inside-work-tree")
             output.trim() == "true"
@@ -19,27 +34,19 @@ class GitClient(private val repoPath: String) {
         }
     }
 
-    fun getCommits(): List<CommitInfo> {
-        val args = mutableListOf("log", "--format=%H %aE %aI", "--no-merges")
-        args.add("--")
-        args.add("*.kt")
-
-        val output = runGit(*args.toTypedArray())
-        if (output.isBlank()) return emptyList()
-
-        return output.lines().mapNotNull { line ->
-            val parts = line.split(" ", limit = 3)
-            if (parts.size == 3) {
-                CommitInfo(hash = parts[0], authorEmail = parts[1], date = parts[2])
-            } else null
-        }
+    override fun getCommits(): List<CommitInfo> {
+        // Используем NUL-разделитель %x00 вместо пробела, чтобы корректно
+        // обрабатывать пустой e-mail автора и адреса с пробелами (mailmap
+        // может вернуть "Name <user@example.com>"). Пробел разорвал бы поля.
+        val output = runGit("log", "--format=%H%x00%aE%x00%aI", "--no-merges", "--", "*.kt")
+        return parseCommitLines(output)
     }
 
     /**
      * Определяет все root-коммиты репозитория одной командой git.
      * Возвращает Set хэшей root-коммитов.
      */
-    fun findRootCommits(): Set<String> {
+    override fun findRootCommits(): Set<String> {
         return try {
             val output = runGit("rev-list", "--max-parents=0", "HEAD")
             output.lines().map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -53,7 +60,7 @@ class GitClient(private val repoPath: String) {
      * чтобы парсер всегда видел @System на уровне класса,
      * даже если новый тест добавлен далеко от объявления класса.
      */
-    fun getDiffForCommit(commitHash: String, isRoot: Boolean): String {
+    override fun getDiffForCommit(commitHash: String, isRoot: Boolean): String {
         return if (isRoot) {
             runGit("diff-tree", "--root", "-M", "-U999999", "-p", commitHash, "--", "*.kt")
         } else {
@@ -67,7 +74,7 @@ class GitClient(private val repoPath: String) {
      * Использует pickaxe-поиск, чтобы находить изменения даже если
      * тест уже удалён из файла.
      */
-    fun findCommitsTouchingSystemAnnotation(filePath: String): List<String> {
+    override fun findCommitsTouchingSystemAnnotation(filePath: String): List<String> {
         return try {
             val output = runGit(
                 "log", "--all", "--reverse", "--format=%H",
@@ -83,7 +90,7 @@ class GitClient(private val repoPath: String) {
      * Возвращает полное содержимое файла на момент указанного коммита.
      * Возвращает пустую строку, если файл не существовал в этом коммите.
      */
-    fun getFileContentAtCommit(commitHash: String, filePath: String): String {
+    override fun getFileContentAtCommit(commitHash: String, filePath: String): String {
         return try {
             runGit("show", "$commitHash:$filePath", suppressErrors = true)
         } catch (e: Exception) {
@@ -91,31 +98,26 @@ class GitClient(private val repoPath: String) {
         }
     }
 
-    /** Обратная совместимость: определяет root сам (медленнее). */
-    fun getDiffForCommit(commitHash: String): String {
-        val isRoot = isRootCommit(commitHash)
-        return getDiffForCommit(commitHash, isRoot)
-    }
-
-    private fun isRootCommit(commitHash: String): Boolean {
-        val output = runGit("rev-list", "--parents", "-1", commitHash)
-        return output.trim().split(" ").size == 1
-    }
-
     private fun runGit(vararg args: String, suppressErrors: Boolean = false): String {
         val command = listOf("git", "-C", repoPath) + args.toList()
         val process = ProcessBuilder(command)
             .redirectErrorStream(false)
+            .apply {
+                // Предотвращаем типичные зависания git: pager и интерактивные
+                // запросы учётных данных, которые блокируют чтение потоков.
+                environment()["GIT_PAGER"] = "cat"
+                environment()["GIT_TERMINAL_PROMPT"] = "0"
+            }
             .start()
         try {
             val stderrFuture = CompletableFuture.supplyAsync {
-                process.errorStream.bufferedReader().use { it.readText() }
+                process.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             }
-            val stdout = process.inputStream.bufferedReader().use { it.readText() }
+            val stdout = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             val exitCode = process.waitFor()
             val stderr = stderrFuture.get()
             if (!suppressErrors && exitCode != 0 && stderr.isNotBlank()) {
-                System.err.println("Git error: $stderr")
+                Logger.warnGitErrorOnce(stderr.lines().firstOrNull() ?: stderr)
             }
             return stdout.trim()
         } finally {

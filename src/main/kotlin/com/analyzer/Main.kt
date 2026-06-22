@@ -11,25 +11,53 @@ private data class CommitResult(
 )
 
 fun main() {
-    val repoPath = AnalyzerConfig.REPO_PATH
-    val days = AnalyzerConfig.DAYS
-    val generateHtml = AnalyzerConfig.GENERATE_HTML
-    val threadCount = AnalyzerConfig.THREAD_COUNT
+    try {
+        val repoPath = AnalyzerConfig.REPO_PATH
+        val days = AnalyzerConfig.DAYS
+        val generateHtml = AnalyzerConfig.GENERATE_HTML
+        val threadCount = AnalyzerConfig.THREAD_COUNT
 
-    val gitClient = GitClient(repoPath)
+        val gitClient: GitOperations = GitClient(repoPath)
+        runAnalysis(
+            gitClient = gitClient,
+            repoPath = repoPath,
+            days = days,
+            generateHtml = generateHtml,
+            threadCount = threadCount
+        )
+    } catch (e: Exception) {
+        Logger.error(e.message ?: e::class.simpleName ?: "Unexpected error")
+    } finally {
+        // Вывод суммарного счётчика подавленных git-дубликатов: в finally,
+        // чтобы он не терялся при ранних return и при исключении.
+        Logger.flushSummary()
+    }
+}
 
+/**
+ * Точка запуска анализа, отделённая от `main()` для тестируемости.
+ * Принимает [gitClient] как [GitOperations], что позволяет подставлять
+ * in-memory fake-репозиторий в интеграционных тестах.
+ */
+internal fun runAnalysis(
+    gitClient: GitOperations,
+    repoPath: String,
+    days: Int?,
+    generateHtml: Boolean,
+    threadCount: Int
+) {
     if (!gitClient.validateRepo()) {
-        System.err.println("Error: '$repoPath' is not a valid git repository.")
+        Logger.error("'$repoPath' is not a valid git repository.")
         return
     }
 
     val commits = gitClient.getCommits()
 
     if (commits.isEmpty()) {
-        println("No commits found.")
+        Logger.info("No commits found.")
         return
     }
-    println("Found ${commits.size} commits to analyze (threads: $threadCount)...")
+    Logger.info("Found ${commits.size} commits to analyze (threads: $threadCount)...")
 
     // Определяем root-коммиты одной командой вместо проверки каждого
     val rootCommits = gitClient.findRootCommits()
@@ -37,6 +65,10 @@ fun main() {
     val allTestRecords = mutableListOf<TestRecord>()
     val processed = AtomicInteger(0)
     val total = commits.size
+
+    // TestParser stateless на уровне класса (все состояния локальны в вызове),
+    // поэтому один экземпляр безопасно переиспользуется между корутинами.
+    val parser = TestParser()
 
     runBlocking {
         // Фиксированный диспатчер с заданным числом потоков
@@ -54,16 +86,13 @@ fun main() {
 
                     val count = processed.incrementAndGet()
                     if (count % 100 == 0 || count == total) {
-                        println("  Processing commit $count/$total...")
+                        Logger.info("  Processing commit $count/$total...")
                     }
 
                     if (diff.isBlank()) {
                         return@async CommitResult(emptyList())
                     }
 
-                    // TestParser — каждый вызов findNewTests() работает
-                    // только с локальными переменными, создаём свой экземпляр
-                    val parser = TestParser()
                     val newTests = parser.findNewTests(diff)
 
                     val records = newTests.map { test ->
@@ -90,7 +119,7 @@ fun main() {
         }
     }
 
-    enrichSystemIds(allTestRecords, gitClient)
+    enrichSystemIds(allTestRecords, gitClient, parser)
     val dedupedRecords = deduplicateLatestTests(allTestRecords)
     val consoleRecords = filterRecordsWithinDays(dedupedRecords, days)
     val testsByAuthor = buildTestsByAuthor(consoleRecords)
@@ -98,7 +127,11 @@ fun main() {
     println()
     val periodLabel = if (days != null) "Last $days days" else "All time"
     val printer = ReportPrinter()
-    printer.printReport(testsByAuthor, periodLabel, repoPath)
+    printer.printReport(
+        testsByAuthor, periodLabel, repoPath,
+        authorNames = AnalyzerConfig.AUTHOR_NAMES,
+        systemNames = AnalyzerConfig.SYSTEM_NAMES
+    )
 
     if (generateHtml) {
         val outputDir = AnalyzerConfig.HTML_REPORT_DIR
@@ -108,7 +141,7 @@ fun main() {
             systemNames = AnalyzerConfig.SYSTEM_NAMES,
             authorNames = AnalyzerConfig.AUTHOR_NAMES
         )
-        println("HTML report generated: $outputDir/index.html")
+        Logger.info("HTML report generated: $outputDir/index.html")
     }
 }
 
@@ -125,15 +158,14 @@ fun main() {
  */
 private fun enrichSystemIds(
     records: MutableList<TestRecord>,
-    gitClient: GitClient
+    gitClient: GitOperations,
+    parser: TestParser
 ) {
     val nullRecordsByFile = records
         .mapIndexedNotNull { idx, r -> if (r.systemId == null) idx to r else null }
         .groupBy { (_, r) -> r.filePath }
 
     if (nullRecordsByFile.isEmpty()) return
-
-    val parser = TestParser()
 
     for ((filePath, indexedRecords) in nullRecordsByFile) {
         val commits = gitClient.findCommitsTouchingSystemAnnotation(filePath)
