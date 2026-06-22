@@ -21,7 +21,10 @@ internal fun filterRecordsWithinDays(
 ): List<TestRecord> {
     if (days == null) return records
 
-    val cutoff = currentDate.minusDays(days.toLong())
+    // "Последние N дней" = сегодня + (N-1) предыдущих дней = ровно N
+    // календарных дней включительно. Без -1 получилось бы N полных дней
+    // назад плюс сегодня, т.е. N+1 календарный день — типичный off-by-one.
+    val cutoff = currentDate.minusDays((days - 1).toLong())
     return records.filter { record ->
         try {
             val commitDate = OffsetDateTime.parse(record.date).toLocalDate()
@@ -37,7 +40,7 @@ internal fun buildTestsByAuthor(records: List<TestRecord>): Map<String, List<New
 
     for (record in records) {
         testsByAuthor.getOrPut(record.authorEmail) { mutableListOf() }
-            .add(NewTestInfo(record.functionName, record.filePath, record.systemId))
+            .add(NewTestInfo(record.functionName, record.filePath, record.systemId, record.date))
     }
 
     return testsByAuthor

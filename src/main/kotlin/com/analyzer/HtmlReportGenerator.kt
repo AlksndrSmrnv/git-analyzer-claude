@@ -1,5 +1,6 @@
 package com.analyzer
 
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -7,21 +8,39 @@ import java.time.format.DateTimeFormatter
 
 class HtmlReportGenerator {
 
+    /**
+     * JSON-сериализатор для HTML-отчёта.
+     *
+     * encodeDefaults = true — гарантирует, что поле `system` (с дефолтом null)
+     * попадает в JSON как `"system":null`, а не опускается. JS-часть отчёта
+     * ожидает явное null/значение, Presence-undefined ломает сравнения.
+     */
+    private val reportJson = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
+
     fun generate(
         records: List<TestRecord>,
         repoPath: String,
         outputDir: String,
         systemNames: Map<String, String> = emptyMap(),
-        authorNames: Map<String, String> = emptyMap()
+        authorNames: Map<String, String> = emptyMap(),
+        zoneId: ZoneId = ZoneId.systemDefault()
     ) {
-        val jsonData = serializeToJson(records)
-        val systemNamesJson = serializeMapToJson(systemNames)
-        val authorNamesJson = serializeMapToJson(authorNames)
-        val generatedAtZoned = ZonedDateTime.now(ZoneId.of("Europe/Moscow"))
+        val generatedAtZoned = ZonedDateTime.now(zoneId)
         val generatedAt = generatedAtZoned
             .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss XXX"))
         val generatedAtIso = generatedAtZoned
             .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+        val reportData = ReportData(
+            records = records,
+            systemNames = systemNames,
+            authorNames = authorNames,
+            generatedAt = generatedAtIso
+        )
+        val reportJsonString = reportJson.encodeToString(ReportData.serializer(), reportData)
 
         val reportDir = File(outputDir)
         if (reportDir.exists() && !reportDir.isDirectory) {
@@ -39,66 +58,14 @@ class HtmlReportGenerator {
         File(assetsDir, "report.css").writeText(buildCss(), Charsets.UTF_8)
         File(assetsDir, "report.js").writeText(buildJavaScript(), Charsets.UTF_8)
         File(assetsDir, "report-data.js").writeText(
-            buildDataJavaScript(jsonData, systemNamesJson, authorNamesJson, generatedAtIso),
+            buildDataJavaScript(reportJsonString),
             Charsets.UTF_8
         )
         copyChartJs(File(assetsDir, "chart.umd.js"))
     }
 
-    private fun serializeToJson(records: List<TestRecord>): String {
-        if (records.isEmpty()) return "[]"
-        val sb = StringBuilder()
-        sb.append("[\n")
-        for ((index, record) in records.withIndex()) {
-            sb.append("{")
-            sb.append("\"author\":\"${escapeJson(record.authorEmail)}\",")
-            sb.append("\"test\":\"${escapeJson(record.functionName)}\",")
-            sb.append("\"file\":\"${escapeJson(record.filePath)}\",")
-            sb.append("\"date\":\"${escapeJson(record.date)}\",")
-            if (record.systemId != null) {
-                sb.append("\"system\":\"${escapeJson(record.systemId)}\"")
-            } else {
-                sb.append("\"system\":null")
-            }
-            sb.append("}")
-            if (index < records.size - 1) sb.append(",")
-            sb.append("\n")
-        }
-        sb.append("]")
-        return sb.toString()
-    }
-
-    private fun serializeMapToJson(map: Map<String, String>): String {
-        if (map.isEmpty()) return "{}"
-        val entries = map.entries.joinToString(",") { (k, v) ->
-            "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
-        }
-        return "{$entries}"
-    }
-
-    private fun escapeJson(value: String): String {
-        return value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace("/", "\\/")
-    }
-
-    private fun buildDataJavaScript(
-        jsonData: String,
-        systemNamesJson: String,
-        authorNamesJson: String,
-        generatedAtIso: String
-    ): String {
-        return """window.REPORT_DATA = {
-    records: $jsonData,
-    systemNames: $systemNamesJson,
-    authorNames: $authorNamesJson,
-    generatedAt: "$generatedAtIso"
-};
-"""
+    private fun buildDataJavaScript(reportJson: String): String {
+        return "window.REPORT_DATA = $reportJson;\n"
     }
 
     private fun copyChartJs(target: File) {
@@ -608,6 +575,9 @@ tbody tr:hover { background: #f8f9fb; }
 
     private fun buildJavaScript(): String {
         return """
+(function() {
+'use strict';
+
 const COLORS = [
     '#2563eb','#e11d48','#16a34a','#ea580c','#7c3aed',
     '#0891b2','#c026d3','#ca8a04','#dc2626','#059669',
@@ -680,36 +650,45 @@ function updatePeriodButtonLabels() {
     });
 }
 
-function filterByPeriod(records, periodType, cMonth, cYear, cQuarter) {
-    if (periodType === 'all') return records;
+function getPeriodRange(periodType, cMonth, cYear, cQuarter) {
+    if (periodType === 'all') return null;
     const now = NOW;
     let start, end;
     switch (periodType) {
         case 'week':
             start = new Date(now); start.setDate(now.getDate() - 7); start.setHours(0, 0, 0, 0);
-            end = now;
+            end = new Date(now);
             break;
         case 'month':
             start = new Date(now); start.setMonth(now.getMonth() - 1); start.setHours(0, 0, 0, 0);
-            end = now;
+            end = new Date(now);
             break;
         case 'year':
             start = new Date(now); start.setFullYear(now.getFullYear() - 1); start.setHours(0, 0, 0, 0);
-            end = now;
+            end = new Date(now);
             break;
-        case 'quarter':
+        case 'quarter': {
             const qStartMonth = (cQuarter - 1) * 3;
             start = new Date(cYear, qStartMonth, 1);
             end = new Date(cYear, qStartMonth + 3, 0, 23, 59, 59, 999);
             break;
+        }
         case 'custom':
             start = new Date(cYear, cMonth - 1, 1);
             end = new Date(cYear, cMonth, 0, 23, 59, 59, 999);
             break;
+        default:
+            return null;
     }
+    return { start: start, end: end };
+}
+
+function filterByPeriod(records, periodType, cMonth, cYear, cQuarter) {
+    const range = getPeriodRange(periodType, cMonth, cYear, cQuarter);
+    if (range === null) return records;
     return records.filter(r => {
         const d = parseDate(r.date);
-        return d >= start && d <= end;
+        return d >= range.start && d <= range.end;
     });
 }
 
@@ -733,12 +712,16 @@ function aggregateByAuthor(filtered) {
 }
 
 function aggregateBySystem(filtered) {
+    // Группируем по raw system ID (r.system), а не по resolveSystemLabel,
+    // иначе разные id с одинаковым label из SYSTEM_NAMES схлопнутся в одну группу.
+    // Label вычисляется только при рендере (по ключу через resolveSystemLabel).
     const merged = mergeByAuthor(filtered);
     const map = {};
+    const NULL_KEY = '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
     merged.forEach(r => {
-        const sys = resolveSystemLabel(r.system);
-        if (!map[sys]) map[sys] = [];
-        map[sys].push(r);
+        const key = r.system || NULL_KEY;
+        if (!map[key]) map[key] = [];
+        map[key].push(r);
     });
     return Object.entries(map)
         .sort((a, b) => b[1].length - a[1].length)
@@ -999,66 +982,40 @@ function renderSystemChart(bySystem) {
     });
 }
 
+function getPrevPeriodRange(periodType, cMonth, cYear, cQuarter) {
+    const cur = getPeriodRange(periodType, cMonth, cYear, cQuarter);
+    if (cur === null) return null;
+    const curLen = cur.end.getTime() - cur.start.getTime();
+    // Previous window has same length, ends just before current window starts.
+    const prevEnd = new Date(cur.start.getTime() - 1);
+    const prevStart = new Date(prevEnd.getTime() - curLen);
+    return { start: prevStart, end: prevEnd };
+}
+
 function getPrevPeriodFiltered(records, periodType, cMonth, cYear, cQuarter) {
-    const now = NOW;
-    let start, end;
-    switch (periodType) {
-        case 'week': {
-            const curStart = new Date(now);
-            curStart.setDate(now.getDate() - 7);
-            curStart.setHours(0, 0, 0, 0);
-            end = new Date(curStart);
-            start = new Date(end.getTime() - (now - curStart));
-            break;
-        }
-        case 'month': {
-            // Mirror filterByPeriod: prev = [startCur - curLen, startCur] keeps windows equal length
-            const curStart = new Date(now);
-            curStart.setMonth(now.getMonth() - 1);
-            curStart.setHours(0, 0, 0, 0);
-            end = new Date(curStart);
-            start = new Date(end.getTime() - (now - curStart));
-            break;
-        }
-        case 'year': {
-            const curStart = new Date(now);
-            curStart.setFullYear(now.getFullYear() - 1);
-            curStart.setHours(0, 0, 0, 0);
-            end = new Date(curStart);
-            start = new Date(end.getTime() - (now - curStart));
-            break;
-        }
-        case 'custom': {
-            const pm = cMonth - 2; // cMonth is 1-based, -1 gives prev month index (0-based), so -2 then +1 = -1 step back
-            const py = pm < 0 ? cYear - 1 : cYear;
-            const pm2 = ((pm % 12) + 12) % 12; // Jan(1) -> pm=-1 -> py=cYear-1, pm2=11 (Dec) ✓
-            start = new Date(py, pm2, 1);
-            end = new Date(py, pm2 + 1, 0, 23, 59, 59, 999);
-            break;
-        }
-        case 'quarter': {
-            let pq = cQuarter - 1;
-            let py = cYear;
-            if (pq < 1) { pq = 4; py = cYear - 1; }
-            const qStartMonth = (pq - 1) * 3;
-            start = new Date(py, qStartMonth, 1);
-            end = new Date(py, qStartMonth + 3, 0, 23, 59, 59, 999);
-            break;
-        }
-        default:
-            return [];
-    }
+    const range = getPrevPeriodRange(periodType, cMonth, cYear, cQuarter);
+    if (range === null) return [];
     return records.filter(r => {
         const d = new Date(r.date);
-        return d >= start && d <= end;
+        return d >= range.start && d <= range.end;
     });
 }
 
 function renderVelocity(filtered, periodType, cMonth, cYear, cQuarter, systemFilter) {
     const total = filtered.length;
-    const periodWeeks = { week: 1, month: 4.3, quarter: 13, year: 52, custom: 4.3 };
-    const weeks = periodWeeks[periodType] || 1;
-    const perWeek = (total / weeks).toFixed(1);
+
+    // Weekly velocity is derived from the actual period length (in days),
+    // not a hardcoded weeks-per-period table. For 'custom' this correctly
+    // accounts for 28/29/30/31-day months.
+    const range = getPeriodRange(periodType, cMonth, cYear, cQuarter);
+    let perWeek;
+    if (range === null) {
+        perWeek = total > 0 ? '\u221e' : '0.0';
+    } else {
+        const days = Math.max(1, (range.end.getTime() - range.start.getTime()) / 86400000);
+        const weeks = days / 7;
+        perWeek = (total / weeks).toFixed(1);
+    }
 
     let prevFiltered = getPrevPeriodFiltered(DATA, periodType, cMonth, cYear, cQuarter);
     if (systemFilter !== 'all') {
@@ -1183,7 +1140,7 @@ function renderDetails(byAuthor) {
 }
 
 function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function populateSystemFilter(records) {
@@ -1275,6 +1232,7 @@ function updateReport(periodType) {
     });
 
     updateReport('week');
+})();
 })();
 """
     }

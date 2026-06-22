@@ -5,7 +5,9 @@ class ReportPrinter {
     fun printReport(
         testsByAuthor: Map<String, List<NewTestInfo>>,
         period: String,
-        repoPath: String
+        repoPath: String,
+        authorNames: Map<String, String> = emptyMap(),
+        systemNames: Map<String, String> = emptyMap()
     ) {
         val separator = "=".repeat(60)
 
@@ -25,27 +27,51 @@ class ReportPrinter {
 
         val sorted = testsByAuthor.entries.sortedByDescending { it.value.size }
 
-        println("  %-40s %s".format("Author", "New Tests"))
-        println("  " + "-".repeat(50))
+        // Сводная таблица: динамическая ширина колонки автора по самой длинной строке.
+        val authorLabels = sorted.map { (email, _) -> authorLabel(email, authorNames) }
+        val authorColWidth = (authorLabels.maxOf { it.length } + 2).coerceAtLeast(14)
+        val headerLine = "  ${"Author".padEnd(authorColWidth)} New Tests"
+        val underline = "  " + "-".repeat(authorColWidth + " New Tests".length)
+
+        println(headerLine)
+        println(underline)
         var total = 0
-        for ((author, tests) in sorted) {
-            println("  %-40s %d".format(author, tests.size))
-            total += tests.size
+        for ((label, entry) in authorLabels.zip(sorted)) {
+            println("  ${label.padEnd(authorColWidth)} ${entry.value.size}")
+            total += entry.value.size
         }
-        println("  " + "-".repeat(50))
-        println("  %-40s %d".format("TOTAL", total))
+        println(underline)
+        println("  ${"TOTAL".padEnd(authorColWidth)} $total")
         println()
 
         println("  Details:")
         println()
-        for ((author, tests) in sorted) {
-            println("  $author:")
+        for ((email, tests) in sorted) {
+            val label = authorLabel(email, authorNames)
+            println("  $label:")
             for (test in tests) {
-                println("    - ${test.functionName} (${test.filePath})")
+                val systemSuffix = test.systemId?.let { " [${systemLabel(it, systemNames)}]" } ?: ""
+                val dateSuffix = test.date?.let { " @ $it" } ?: ""
+                println("    - ${test.functionName}${systemSuffix}${dateSuffix} (${test.filePath})")
             }
             println()
         }
 
         println(separator)
+    }
+
+    /**
+     * Резолвит e-mail автора в читаемое имя. Если в [authorNames] есть запись,
+     * показывает "Имя (email)"; иначе просто e-mail.
+     */
+    private fun authorLabel(email: String, authorNames: Map<String, String>): String {
+        return authorNames[email]?.let { "$it ($email)" } ?: email
+    }
+
+    /**
+     * Резолвит ID системы в читаемый label "Название (ID)"; иначе ID как есть.
+     */
+    private fun systemLabel(systemId: String, systemNames: Map<String, String>): String {
+        return systemNames[systemId]?.let { "$it ($systemId)" } ?: systemId
     }
 }

@@ -3,7 +3,8 @@ package com.analyzer
 data class NewTestInfo(
     val functionName: String,
     val filePath: String,
-    val systemId: String? = null
+    val systemId: String? = null,
+    val date: String? = null
 )
 
 class TestParser {
@@ -286,9 +287,8 @@ class TestParser {
             // Вложенные классы (с отступом) без собственной @System
             // наследуют currentClassSystem от родителя.
             // companion object не считается новым классом-контейнером.
-            val isContextClassDeclaration = classDeclarationRegex.containsMatchIn(contextContent)
-                && !contextContent.contains("companion object")
-            if (handleClassDeclaration(contextContent, line, hasDiffPrefix = true)) {
+            val isContextClassDeclaration = handleClassDeclaration(contextContent, line, hasDiffPrefix = true)
+            if (isContextClassDeclaration) {
                 continue
             }
 
@@ -476,8 +476,21 @@ class TestParser {
         return content.startsWith("fun ") || content.contains(" fun ")
     }
 
+    /**
+     * Имя тестовой функции. Поддерживает:
+     * - обычные имена: `fun foo()`;
+     * - backtick-имена: `fun `should work`()`;
+     * - extension-функции: `fun String.foo()` (имя без receiver-типа);
+     * - generic-функции: `fun <T> foo()` и `fun foo<T>()`.
+     *
+     * Ограничение: extension-функции с generic-типом receiver
+     * (`fun List<Int>.foo()`) не поддерживаются — парсер возьмёт имя типа.
+     */
+    private val functionNameRegex = Regex(
+        """fun\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?(`[^`]+`|\w+)\s*[(<]"""
+    )
+
     private fun extractFunctionName(content: String): String? {
-        val regex = Regex("""fun\s+(`[^`]+`|\w+)\s*\(""")
-        return regex.find(content)?.groupValues?.get(1)
+        return functionNameRegex.find(content)?.groupValues?.get(1)
     }
 }

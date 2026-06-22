@@ -427,6 +427,57 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Detects extension test function (fun Receiver.foo)")
+    fun detectsExtensionFunctionTest() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    fun String.myExtensionTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("myExtensionTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects test with generic type parameter before name (fun <T> foo)")
+    fun detectsGenericFunctionTest() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    fun <T> genericTest() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("genericTest", results[0].functionName)
+    }
+
+    @Test
+    @DisplayName("Detects test with generic type parameter after name (fun foo<T>)")
+    fun detectsGenericAfterNameTest() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    fun genericAfterNameTest<T>() {
++        assertTrue(true)
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("genericAfterNameTest", results[0].functionName)
+    }
+
+    @Test
     @DisplayName("Detects test when @DisplayName value contains 'fun' substring")
     fun detectsTestWithFunInDisplayName() {
         val diff = """
@@ -1121,5 +1172,63 @@ class New_Tests : Tests {
         assertEquals(2, results.size)
         assertEquals("CI01337", results[0].systemId)
         assertNull(results[1].systemId)
+    }
+
+    @Test
+    @DisplayName("@System on data class is propagated to tests inside")
+    fun systemOnDataClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,7 @@
++@System("CI001")
++data class MyTest {
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("myTest", results[0].functionName)
+        assertEquals("CI001", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("@System on sealed class is propagated to tests inside")
+    fun systemOnSealedClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,7 @@
++@System("CI002")
++sealed class MyTest {
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI002", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("@System on enum class is propagated to tests inside")
+    fun systemOnEnumClass() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,7 @@
++@System("CI003")
++enum class MyTest {
++    @Test
++    fun myTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(1, results.size)
+        assertEquals("CI003", results[0].systemId)
     }
 }
