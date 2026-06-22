@@ -27,7 +27,7 @@ class LoggerTest {
         // Flush суммарно подаёт только счётчик для повторов
         val summary = captureErr { Logger.flushSummary() }
         assertTrue(summary.contains("[fatal: bad object ref] — ещё 1 повтор подавлено"),
-            "expected summary for repeated 'fatal: bad object ref', got: $summary")
+            "expected summary '(1 повтор)' for repeated 'fatal: bad object ref', got: $summary")
     }
 
     @Test
@@ -56,6 +56,19 @@ class LoggerTest {
         assertTrue(err.contains("[WARN] (git) only once"))
         assertFalse(err.contains("повтор подавлено"),
             "однократное сообщение не должно считаться повтором: $err")
+    }
+
+    @Test
+    @DisplayName("flushSummary uses plural 'повторов' when repeats > 1")
+    fun flushSummaryPluralForm() {
+        val err = captureErr {
+            repeat(4) { Logger.warnGitErrorOnce("dup") }  // 3 повтора
+            Logger.flushSummary()
+        }
+        assertTrue(err.contains("ещё 3 повторов подавлено"),
+            "expected plural '3 повторов' for 3 repeats, got: $err")
+        assertTrue(!err.contains("ещё 3 повтор подавлено"),
+            "singular form must not be used for 3 repeats: $err")
     }
 
     private inline fun captureErr(block: () -> Unit): String {

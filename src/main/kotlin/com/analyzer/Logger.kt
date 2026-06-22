@@ -42,7 +42,7 @@ internal object Logger {
     /**
      * Дедуплицирует идентичные git-предупреждения: первый раз печатает, далее
      * для этого же текста только инкрементирует счётчик. Разные тексты
-     * печатаются независимо. Бороть можно через [flushSummary].
+     * печатаются независимо. Сбросить накопленное можно через [flushSummary].
      */
     fun warnGitErrorOnce(message: String) {
         synchronized(lock) {
@@ -62,7 +62,9 @@ internal object Logger {
         synchronized(lock) {
             suppressedByMessage.forEach { (message, count) ->
                 if (count > 1) {
-                    System.err.println("[WARN] (git) [$message] — ещё ${count - 1} повтор подавлено")
+                    val repeats = count - 1
+                    val word = if (repeats == 1) "повтор" else "повторов"
+                    System.err.println("[WARN] (git) [$message] — ещё $repeats $word подавлено")
                 }
             }
             suppressedByMessage.clear()

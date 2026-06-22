@@ -41,7 +41,7 @@ class ReportPrinterTest {
         }
         assertTrue(out.contains("Иванов Иван (ivanov@company.com)"),
             "expected resolved label in output: $out")
-        // Динамическая ширина колонки допусчит пробелы между label и count.
+        // Динамическая ширина колонки допускает пробелы между label и count.
         assertTrue(Regex("TOTAL\\s+1").containsMatchIn(out),
             "expected 'TOTAL <count>' row, got: $out")
     }
