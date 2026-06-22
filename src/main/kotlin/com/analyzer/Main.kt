@@ -27,7 +27,10 @@ fun main() {
         )
     } catch (e: Exception) {
         Logger.error(e.message ?: e::class.simpleName ?: "Unexpected error")
-        Logger.error("Run with --help for usage details.")
+    } finally {
+        // Вывод суммарного счётчика подавленных git-дубликатов: в finally,
+        // чтобы он не терялся при ранних return и при исключении.
+        Logger.flushSummary()
     }
 }
 
@@ -140,8 +143,6 @@ internal fun runAnalysis(
         )
         Logger.info("HTML report generated: $outputDir/index.html")
     }
-
-    Logger.flushSummary()
 }
 
 /**

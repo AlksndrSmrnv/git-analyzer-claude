@@ -892,7 +892,7 @@ function renderSystemsTable(bySystem) {
             .join(', ');
         const cell = isOther
             ? '<td><em>\u0414\u0440\u0443\u0433\u043e\u0435</em></td>'
-            : '<td><code>' + escapeHtml(system) + '</code></td>';
+            : '<td><code>' + escapeHtml(resolveSystemLabel(system)) + '</code></td>';
         return '<tr>' + cell + '<td>' + tests.length + '</td><td>' + authorSummary + '</td></tr>';
     }).join('');
 }
@@ -902,9 +902,10 @@ function renderSystemCountChart(bySystem) {
     if (systemCountChart) systemCountChart.destroy();
 
     const OTHER_KEY = '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    const OTHER_LABEL = '\u0414\u0440\u0443\u0433\u043e\u0435';
     const known = Object.entries(bySystem).filter(([sys]) => sys !== OTHER_KEY);
     const other = bySystem[OTHER_KEY];
-    const entries = other ? [...known, ['\u0414\u0440\u0443\u0433\u043e\u0435', other]] : known;
+    const entries = other ? [...known, [OTHER_LABEL, other]] : known;
 
     if (entries.length === 0) {
         systemCountChart = new Chart(ctx, {
@@ -913,7 +914,9 @@ function renderSystemCountChart(bySystem) {
         return;
     }
 
-    const labels = entries.map(e => e[0]);
+    // Резолвим label только при рендере: для известных систем —
+    // resolveSystemLabel(raw id), для блока «Другое» — фиксированный текст.
+    const labels = entries.map(([sys]) => sys === OTHER_LABEL ? OTHER_LABEL : resolveSystemLabel(sys));
     const data = entries.map(e => e[1].length);
     const colors = labels.map((_, i) => COLORS[i % COLORS.length]);
 
@@ -942,9 +945,10 @@ function renderSystemChart(bySystem) {
     if (systemChart) systemChart.destroy();
 
     const OTHER_KEY = '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u0430';
+    const OTHER_LABEL = '\u0414\u0440\u0443\u0433\u043e\u0435';
     const known = Object.entries(bySystem).filter(([sys]) => sys !== OTHER_KEY);
     const other = bySystem[OTHER_KEY];
-    const entries = other ? [...known, ['\u0414\u0440\u0443\u0433\u043e\u0435', other]] : known;
+    const entries = other ? [...known, [OTHER_LABEL, other]] : known;
 
     if (entries.length === 0) {
         systemChart = new Chart(ctx, {
@@ -953,17 +957,16 @@ function renderSystemChart(bySystem) {
         return;
     }
 
-    const systems = entries.map(e => e[0]);
+    // systems — это человекочитаемые label'ы для оси. Поиск по raw id больше
+    // не нужен: данные берём напрямую из entries в том же порядке.
+    const systems = entries.map(([sys]) => sys === OTHER_LABEL ? OTHER_LABEL : resolveSystemLabel(sys));
     const authorSet = new Set();
     entries.forEach(([, tests]) => tests.forEach(t => authorSet.add(t.author)));
     const authors = [...authorSet];
 
     const datasets = authors.map((author, i) => ({
         label: author,
-        data: systems.map(sys => {
-            const entry = entries.find(([s]) => s === sys);
-            return entry ? entry[1].filter(t => t.author === author).length : 0;
-        }),
+        data: entries.map(([, tests]) => tests.filter(t => t.author === author).length),
         backgroundColor: COLORS[i % COLORS.length],
         borderRadius: 4
     }));
@@ -1010,7 +1013,10 @@ function renderVelocity(filtered, periodType, cMonth, cYear, cQuarter, systemFil
     const range = getPeriodRange(periodType, cMonth, cYear, cQuarter);
     let perWeek;
     if (range === null) {
-        perWeek = total > 0 ? '\u221e' : '0.0';
+        // 'all' period: нет диапазона, недельная скорость не определена.
+        // Сохраняем обратно-совместимое поведение — показываем total
+        // (как делилось на weeks=1 в старой версии).
+        perWeek = total.toFixed(1);
     } else {
         const days = Math.max(1, (range.end.getTime() - range.start.getTime()) / 86400000);
         const weeks = days / 7;

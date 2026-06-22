@@ -41,7 +41,9 @@ class ReportPrinterTest {
         }
         assertTrue(out.contains("Иванов Иван (ivanov@company.com)"),
             "expected resolved label in output: $out")
-        assertTrue(out.contains("TOTAL 1"))
+        // Динамическая ширина колонки допусчит пробелы между label и count.
+        assertTrue(Regex("TOTAL\\s+1").containsMatchIn(out),
+            "expected 'TOTAL <count>' row, got: $out")
     }
 
     @Test
@@ -76,9 +78,13 @@ class ReportPrinterTest {
         val out = capture {
             printer.printReport(byAuthor, "All time", "/repo")
         }
-        // Сводная строка содержит email и tests.size, и TOTAL корректно
-        assertTrue(out.contains("$longEmail 2"))
-        assertTrue(out.contains("TOTAL 2"))
+        // Сводная строка содержит email и tests.size, и TOTAL корректно.
+        // Между label и count может быть несколько пробелов (динамическая ширина),
+        // поэтому проверяем через regex.
+        assertTrue(Regex(Regex.escape(longEmail) + "\\s+2").containsMatchIn(out),
+            "expected '$longEmail <count>=2' row, got: $out")
+        assertTrue(Regex("TOTAL\\s+2").containsMatchIn(out),
+            "expected 'TOTAL 2' row, got: $out")
     }
 
     @Test

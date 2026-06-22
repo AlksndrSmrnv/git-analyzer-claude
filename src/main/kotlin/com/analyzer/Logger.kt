@@ -19,7 +19,10 @@ internal object Logger {
     }
 
     private val lock = Any()
-    private var suppressedCount = 0
+    // Подсчёт идёт отдельно для каждого уникального текста ошибки git: так
+    // разные ошибки не маскируют друг друга (старая версия считала первую
+    // встретившуюся и подавляла все остальные как «аналогичные»).
+    private val suppressedByMessage = linkedMapOf<String, Int>()
 
     fun debug(message: String) = log(Level.DEBUG, message)
     fun info(message: String) = log(Level.INFO, message)
@@ -27,25 +30,42 @@ internal object Logger {
     fun error(message: String) = log(Level.ERROR, message)
 
     /**
-     * Заменяет дублирующиеся предупреждения git: вместо N одинаковых строк
-     * печатает первую и увеличивает счётчик подавленных, который вывозится
-     * отдельным [flushSummary].
+     * Точечно-тестовая точка сброса: молча очищает накопленное состояние,
+     * чтобы тесты не зависели от порядка выполнения. Не печатает ничего.
      */
-    fun warnGitErrorOnce(message: String) {
+    internal fun resetForTests() {
         synchronized(lock) {
-            if (suppressedCount == 0) {
-                System.err.println("[WARN] (git) $message")
-            }
-            suppressedCount++
+            suppressedByMessage.clear()
         }
     }
 
+    /**
+     * Дедуплицирует идентичные git-предупреждения: первый раз печатает, далее
+     * для этого же текста только инкрементирует счётчик. Разные тексты
+     * печатаются независимо. Бороть можно через [flushSummary].
+     */
+    fun warnGitErrorOnce(message: String) {
+        synchronized(lock) {
+            val count = suppressedByMessage[message] ?: 0
+            if (count == 0) {
+                System.err.println("[WARN] (git) $message")
+            }
+            suppressedByMessage[message] = count + 1
+        }
+    }
+
+    /**
+     * Выводит суммарный счётчик подавленных дубликатов (для каждого текста
+     * отдельно, без самой первой напечатанной строки).
+     */
     fun flushSummary() {
         synchronized(lock) {
-            if (suppressedCount > 0) {
-                System.err.println("[WARN] (git) ... ещё ${suppressedCount - 1} аналогичных сообщений подавлено")
-                suppressedCount = 0
+            suppressedByMessage.forEach { (message, count) ->
+                if (count > 1) {
+                    System.err.println("[WARN] (git) [$message] — ещё ${count - 1} повтор подавлено")
+                }
             }
+            suppressedByMessage.clear()
         }
     }
 
