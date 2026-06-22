@@ -624,7 +624,11 @@ const REPORT_DATA = window.REPORT_DATA || { records: [], systemNames: {}, author
 const DATA = REPORT_DATA.records || [];
 const SYSTEM_NAMES = REPORT_DATA.systemNames || {};
 const AUTHOR_NAMES = REPORT_DATA.authorNames || {};
-const NOW = REPORT_DATA.generatedAt ? new Date(REPORT_DATA.generatedAt) : new Date();
+const NOW = (() => {
+    if (!REPORT_DATA.generatedAt) return new Date();
+    const parsed = new Date(REPORT_DATA.generatedAt);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+})();
 
 function setHidden(element, hidden) {
     element.classList.toggle('is-hidden', hidden);
@@ -999,19 +1003,31 @@ function getPrevPeriodFiltered(records, periodType, cMonth, cYear, cQuarter) {
     const now = NOW;
     let start, end;
     switch (periodType) {
-        case 'week':
-            end = new Date(now); end.setDate(now.getDate() - 7); end.setHours(0, 0, 0, 0);
-            start = new Date(end); start.setDate(end.getDate() - 7);
+        case 'week': {
+            const curStart = new Date(now);
+            curStart.setDate(now.getDate() - 7);
+            curStart.setHours(0, 0, 0, 0);
+            end = new Date(curStart);
+            start = new Date(end.getTime() - (now - curStart));
             break;
-        case 'month':
-            // Mirror filterByPeriod: current = [now-1month, now], prev = [now-2months, now-1month]
-            end = new Date(now); end.setMonth(now.getMonth() - 1); end.setHours(0, 0, 0, 0);
-            start = new Date(now); start.setMonth(now.getMonth() - 2); start.setHours(0, 0, 0, 0);
+        }
+        case 'month': {
+            // Mirror filterByPeriod: prev = [startCur - curLen, startCur] keeps windows equal length
+            const curStart = new Date(now);
+            curStart.setMonth(now.getMonth() - 1);
+            curStart.setHours(0, 0, 0, 0);
+            end = new Date(curStart);
+            start = new Date(end.getTime() - (now - curStart));
             break;
-        case 'year':
-            end = new Date(now); end.setFullYear(now.getFullYear() - 1); end.setHours(0, 0, 0, 0);
-            start = new Date(end); start.setFullYear(end.getFullYear() - 1);
+        }
+        case 'year': {
+            const curStart = new Date(now);
+            curStart.setFullYear(now.getFullYear() - 1);
+            curStart.setHours(0, 0, 0, 0);
+            end = new Date(curStart);
+            start = new Date(end.getTime() - (now - curStart));
             break;
+        }
         case 'custom': {
             const pm = cMonth - 2; // cMonth is 1-based, -1 gives prev month index (0-based), so -2 then +1 = -1 step back
             const py = pm < 0 ? cYear - 1 : cYear;
