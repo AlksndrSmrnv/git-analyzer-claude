@@ -17,8 +17,11 @@ class HtmlReportGenerator {
         val jsonData = serializeToJson(records)
         val systemNamesJson = serializeMapToJson(systemNames)
         val authorNamesJson = serializeMapToJson(authorNames)
-        val generatedAt = ZonedDateTime.now(ZoneId.of("Europe/Moscow"))
+        val generatedAtZoned = ZonedDateTime.now(ZoneId.of("Europe/Moscow"))
+        val generatedAt = generatedAtZoned
             .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss XXX"))
+        val generatedAtIso = generatedAtZoned
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
         val reportDir = File(outputDir)
         if (reportDir.exists() && !reportDir.isDirectory) {
@@ -36,7 +39,7 @@ class HtmlReportGenerator {
         File(assetsDir, "report.css").writeText(buildCss(), Charsets.UTF_8)
         File(assetsDir, "report.js").writeText(buildJavaScript(), Charsets.UTF_8)
         File(assetsDir, "report-data.js").writeText(
-            buildDataJavaScript(jsonData, systemNamesJson, authorNamesJson),
+            buildDataJavaScript(jsonData, systemNamesJson, authorNamesJson, generatedAtIso),
             Charsets.UTF_8
         )
         copyChartJs(File(assetsDir, "chart.umd.js"))
@@ -86,12 +89,14 @@ class HtmlReportGenerator {
     private fun buildDataJavaScript(
         jsonData: String,
         systemNamesJson: String,
-        authorNamesJson: String
+        authorNamesJson: String,
+        generatedAtIso: String
     ): String {
         return """window.REPORT_DATA = {
     records: $jsonData,
     systemNames: $systemNamesJson,
-    authorNames: $authorNamesJson
+    authorNames: $authorNamesJson,
+    generatedAt: "$generatedAtIso"
 };
 """
     }
@@ -300,7 +305,7 @@ body {
 .container {
     max-width: 1600px;
     margin: 0 auto;
-    padding: 32px 32px;
+    padding: 32px;
 }
 h1 {
     font-size: 28px;
@@ -619,6 +624,7 @@ const REPORT_DATA = window.REPORT_DATA || { records: [], systemNames: {}, author
 const DATA = REPORT_DATA.records || [];
 const SYSTEM_NAMES = REPORT_DATA.systemNames || {};
 const AUTHOR_NAMES = REPORT_DATA.authorNames || {};
+const NOW = REPORT_DATA.generatedAt ? new Date(REPORT_DATA.generatedAt) : new Date();
 
 function setHidden(element, hidden) {
     element.classList.toggle('is-hidden', hidden);
@@ -652,7 +658,7 @@ function fmtRange(start, end) {
 }
 
 function updatePeriodButtonLabels() {
-    const now = new Date();
+    const now = NOW;
     const ranges = {};
     let s;
     s = new Date(now); s.setDate(now.getDate() - 7);
@@ -672,19 +678,19 @@ function updatePeriodButtonLabels() {
 
 function filterByPeriod(records, periodType, cMonth, cYear, cQuarter) {
     if (periodType === 'all') return records;
-    const now = new Date();
+    const now = NOW;
     let start, end;
     switch (periodType) {
         case 'week':
-            start = new Date(now); start.setDate(now.getDate() - 7);
+            start = new Date(now); start.setDate(now.getDate() - 7); start.setHours(0, 0, 0, 0);
             end = now;
             break;
         case 'month':
-            start = new Date(now); start.setMonth(now.getMonth() - 1);
+            start = new Date(now); start.setMonth(now.getMonth() - 1); start.setHours(0, 0, 0, 0);
             end = now;
             break;
         case 'year':
-            start = new Date(now); start.setFullYear(now.getFullYear() - 1);
+            start = new Date(now); start.setFullYear(now.getFullYear() - 1); start.setHours(0, 0, 0, 0);
             end = now;
             break;
         case 'quarter':
@@ -990,20 +996,20 @@ function renderSystemChart(bySystem) {
 }
 
 function getPrevPeriodFiltered(records, periodType, cMonth, cYear, cQuarter) {
-    const now = new Date();
+    const now = NOW;
     let start, end;
     switch (periodType) {
         case 'week':
-            end = new Date(now); end.setDate(now.getDate() - 7);
+            end = new Date(now); end.setDate(now.getDate() - 7); end.setHours(0, 0, 0, 0);
             start = new Date(end); start.setDate(end.getDate() - 7);
             break;
         case 'month':
             // Mirror filterByPeriod: current = [now-1month, now], prev = [now-2months, now-1month]
-            end = new Date(now); end.setMonth(now.getMonth() - 1);
-            start = new Date(now); start.setMonth(now.getMonth() - 2);
+            end = new Date(now); end.setMonth(now.getMonth() - 1); end.setHours(0, 0, 0, 0);
+            start = new Date(now); start.setMonth(now.getMonth() - 2); start.setHours(0, 0, 0, 0);
             break;
         case 'year':
-            end = new Date(now); end.setFullYear(now.getFullYear() - 1);
+            end = new Date(now); end.setFullYear(now.getFullYear() - 1); end.setHours(0, 0, 0, 0);
             start = new Date(end); start.setFullYear(end.getFullYear() - 1);
             break;
         case 'custom': {
@@ -1079,7 +1085,7 @@ function renderHeatmap() {
     setHidden(container, false);
     setHidden(noData, true);
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = NOW.getFullYear();
     const monthSet = new Set();
     DATA.forEach(r => {
         const ym = r.date.slice(0, 7);
@@ -1219,7 +1225,7 @@ function updateReport(periodType) {
         yearSelect.innerHTML = opts;
         quarterYearSelect.innerHTML = opts;
     } else {
-        const y = new Date().getFullYear();
+        const y = NOW.getFullYear();
         const opt = '<option value="' + y + '">' + y + '</option>';
         yearSelect.innerHTML = opt;
         quarterYearSelect.innerHTML = opt;
