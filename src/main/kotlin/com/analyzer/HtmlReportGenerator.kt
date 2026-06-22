@@ -298,9 +298,9 @@ body {
     display: none !important;
 }
 .container {
-    max-width: 1100px;
+    max-width: 1600px;
     margin: 0 auto;
-    padding: 32px 24px;
+    padding: 32px 32px;
 }
 h1 {
     font-size: 28px;
@@ -639,6 +639,36 @@ function resolveSystemLabel(id) {
 }
 
 function parseDate(iso) { return new Date(iso); }
+
+function fmtDateDM(d, showYear) {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return showYear ? dd + '.' + mm + '.' + d.getFullYear() : dd + '.' + mm;
+}
+
+function fmtRange(start, end) {
+    const sameYear = start.getFullYear() === end.getFullYear();
+    return fmtDateDM(start, !sameYear) + ' \u2013 ' + fmtDateDM(end, true);
+}
+
+function updatePeriodButtonLabels() {
+    const now = new Date();
+    const ranges = {};
+    let s;
+    s = new Date(now); s.setDate(now.getDate() - 7);
+    ranges.week = fmtRange(s, now);
+    s = new Date(now); s.setMonth(now.getMonth() - 1);
+    ranges.month = fmtRange(s, now);
+    s = new Date(now); s.setFullYear(now.getFullYear() - 1);
+    ranges.year = fmtRange(s, now);
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        const p = btn.dataset.period;
+        if (ranges[p]) {
+            if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
+            btn.textContent = btn.dataset.baseLabel + ' (' + ranges[p] + ')';
+        }
+    });
+}
 
 function filterByPeriod(records, periodType, cMonth, cYear, cQuarter) {
     if (periodType === 'all') return records;
@@ -1197,6 +1227,7 @@ function updateReport(periodType) {
 
     populateSystemFilter(DATA);
     renderHeatmap();
+    updatePeriodButtonLabels();
 
     document.getElementById('systemFilter').addEventListener('change', () => {
         updateReport(currentPeriod);
