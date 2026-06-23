@@ -141,7 +141,7 @@ internal fun runAnalysis(
             systemNames = AnalyzerConfig.SYSTEM_NAMES,
             authorNames = AnalyzerConfig.AUTHOR_NAMES
         )
-        Logger.info("HTML report generated: $outputDir/index.html")
+        Logger.info("HTML report generated: $outputDir/report.html")
     }
 }
 
