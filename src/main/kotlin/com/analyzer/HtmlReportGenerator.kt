@@ -50,6 +50,11 @@ class HtmlReportGenerator {
             error("Unable to create HTML report directory: ${reportDir.path}")
         }
 
+        // Удаляем артефакты старой multi-file схемы (до коммита 44c8913): иначе
+        // при перегенерации в существующей директории рядом с report.html будут
+        // лежать устаревшие index.html и assets/, которые вводят в заблуждение.
+        removeLegacyArtifacts(reportDir)
+
         val css = buildCss()
         val chartJs = readChartJs()
         val dataJs = buildDataJavaScript(reportJsonString)
@@ -98,6 +103,27 @@ class HtmlReportGenerator {
             File(userDir, "git-analyzer-claude/src/main/resources/report-assets/chart.umd.js")
         )
         return candidates.firstOrNull { it.isFile }
+    }
+
+    /**
+     * Удаляет артефакты старой multi-file схемы генерации (до перехода на единый
+     * report.html): index.html и директорию assets/. Чистим мягко — отсутствующие
+     * файлы не считаем ошибкой, не способны выбросить исключение по случайному
+     * файлу (используем safe delete). Лишние пользовательские файлы не трогаем.
+     */
+    private fun removeLegacyArtifacts(reportDir: File) {
+        val legacyFiles = listOf(
+            File(reportDir, "index.html"),
+            File(reportDir, "assets")
+        )
+        for (legacy in legacyFiles) {
+            if (!legacy.exists()) continue
+            if (legacy.isDirectory) {
+                legacy.deleteRecursively()
+            } else {
+                legacy.delete()
+            }
+        }
     }
 
     private fun buildHtml(
@@ -264,6 +290,16 @@ ${dataJs}
 <script>
 ${reportJs}
 </script>
+<!-- Инлайн-скрипты выше намеренно вставлены как есть, БЕЗ escapeScriptData().
+     escapeScriptData применяется только к dataJs (JSON), потому что в нём
+     может встретиться литерал </script> (например, в имени теста или пути
+     файла) и преждевременно закрыть тег. Chart.js и report.js — это наш
+     собственный/вендорный код, который мы контролируем. ИНВАРИНТ: содержимое
+     chart.umd.js и report.js НЕ содержит последовательности </script>.
+     Если обновить chart.umd.js на сборку с такой последовательностью —
+     отчёт молча сломается. При замене бандла Chart.js прогоните:
+       grep -c '</script' src/main/resources/report-assets/chart.umd.js
+     Должно вывести 0. То же — для buildJavaScript(). -->
 
 </body>
 </html>"""
