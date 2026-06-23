@@ -46,42 +46,49 @@ class HtmlReportGenerator {
         if (reportDir.exists() && !reportDir.isDirectory) {
             error("HTML report path is not a directory: $outputDir")
         }
-        val assetsDir = File(reportDir, "assets")
-        if (assetsDir.exists() && !assetsDir.isDirectory) {
-            error("HTML report assets path is not a directory: ${assetsDir.path}")
-        }
-        if (!assetsDir.exists() && !assetsDir.mkdirs()) {
-            error("Unable to create HTML report assets directory: ${assetsDir.path}")
+        if (!reportDir.exists() && !reportDir.mkdirs()) {
+            error("Unable to create HTML report directory: ${reportDir.path}")
         }
 
-        File(reportDir, "index.html").writeText(buildHtml(repoPath, generatedAt), Charsets.UTF_8)
-        File(assetsDir, "report.css").writeText(buildCss(), Charsets.UTF_8)
-        File(assetsDir, "report.js").writeText(buildJavaScript(), Charsets.UTF_8)
-        File(assetsDir, "report-data.js").writeText(
-            buildDataJavaScript(reportJsonString),
+        val css = buildCss()
+        val chartJs = readChartJs()
+        val dataJs = buildDataJavaScript(reportJsonString)
+        val reportJs = buildJavaScript()
+
+        File(reportDir, "report.html").writeText(
+            buildHtml(repoPath, generatedAt, css, chartJs, dataJs, reportJs),
             Charsets.UTF_8
         )
-        copyChartJs(File(assetsDir, "chart.umd.js"))
     }
 
     private fun buildDataJavaScript(reportJson: String): String {
-        return "window.REPORT_DATA = $reportJson;\n"
+        return "window.REPORT_DATA = ${escapeScriptData(reportJson)};\n"
     }
 
-    private fun copyChartJs(target: File) {
+    /**
+     * Экранирует JSON для безопасного встраивания внутрь inline-<script>.
+     *
+     * HTML-парсер внутри `<script>` ищет последовательность `</script`,
+     * чтобы закрыть тег. Если в данных (например, в имени теста или пути
+     * файла) встретится `</script>`, разбор HTML сломается и отчёт не
+     * загрузится. Поэтому каждый `<` заменяем на JS-escape `\u003c`:
+     * JS-движок раскроет его обратно в `<`, а HTML-парсер не увидит
+     * литерала `</script` и не преждевременно закроет тег.
+     */
+    private fun escapeScriptData(json: String): String {
+        return json.replace("<", "\\u003c")
+    }
+
+    private fun readChartJs(): String {
         val resourcePath = "/report-assets/chart.umd.js"
         val input = javaClass.getResourceAsStream(resourcePath)
         if (input != null) {
-            input.use { source ->
-                target.outputStream().use { output ->
-                    source.copyTo(output)
-                }
-            }
-            return
+            return input.use { it.readBytes().toString(Charsets.UTF_8) }
         }
 
-        findLocalChartJs()?.copyTo(target, overwrite = true)
+        val local = findLocalChartJs()
             ?: error("Missing bundled report asset: $resourcePath")
+        return local.readText(Charsets.UTF_8)
     }
 
     private fun findLocalChartJs(): File? {
@@ -95,7 +102,11 @@ class HtmlReportGenerator {
 
     private fun buildHtml(
         repoPath: String,
-        generatedAt: String
+        generatedAt: String,
+        css: String,
+        chartJs: String,
+        dataJs: String,
+        reportJs: String
     ): String {
         return """<!DOCTYPE html>
 <html lang="ru">
@@ -103,10 +114,9 @@ class HtmlReportGenerator {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Отчёт по автоматизации тестов</title>
-<link rel="stylesheet" href="assets/report.css">
-<script defer src="assets/chart.umd.js"></script>
-<script defer src="assets/report-data.js"></script>
-<script defer src="assets/report.js"></script>
+<style>
+${css}
+</style>
 </head>
 <body>
 
@@ -244,6 +254,16 @@ class HtmlReportGenerator {
         <div id="detailsList"></div>
     </div>
 </div>
+
+<script>
+${chartJs}
+</script>
+<script>
+${dataJs}
+</script>
+<script>
+${reportJs}
+</script>
 
 </body>
 </html>"""

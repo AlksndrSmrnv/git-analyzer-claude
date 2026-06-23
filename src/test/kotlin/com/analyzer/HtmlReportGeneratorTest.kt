@@ -16,7 +16,7 @@ class HtmlReportGeneratorTest {
     private val generator = HtmlReportGenerator()
 
     @Test
-    @DisplayName("generate produces index.html, assets and report-data.js with valid JSON payload")
+    @DisplayName("generate produces a single report.html with inlined CSS, JS, data and Chart.js")
     fun generatesFullReport() {
         val records = listOf(
             TestRecord("a@x.com", "shouldWork", "src/test/kotlin/MyTest.kt", "2026-04-01T10:00:00+03:00", "CI001"),
@@ -32,32 +32,42 @@ class HtmlReportGeneratorTest {
             authorNames = mapOf("a@x.com" to "Иван")
         )
 
-        val indexHtml = File(outputDir, "index.html")
-        assertTrue(indexHtml.isFile, "index.html should be written")
+        val reportHtml = File(outputDir, "report.html")
+        assertTrue(reportHtml.isFile, "report.html should be written")
 
-        val reportData = File(outputDir, "assets/report-data.js")
-        assertTrue(reportData.isFile, "assets/report-data.js should be written")
+        // Старая структура assets/ больше не должна существовать
+        assertFalse(File(outputDir, "assets").isDirectory, "assets/ directory should not be created")
+        assertFalse(File(outputDir, "index.html").isFile, "index.html should not be written")
 
-        val content = reportData.readText(Charsets.UTF_8)
-        assertTrue(content.startsWith("window.REPORT_DATA = "), "data file should start with window.REPORT_DATA assignment")
+        val content = reportHtml.readText(Charsets.UTF_8)
+
+        // CSS встроен inline
+        assertTrue(content.contains("<style>"), "CSS should be inlined into <style>")
+
+        // Данные встроены в inline <script>
+        assertTrue(content.contains("window.REPORT_DATA = "), "data should be inlined into <script>")
         assertTrue(content.contains("\"author\":\"a@x.com\""))
         assertTrue(content.contains("\"system\":\"CI001\""))
         assertTrue(content.contains("\"system\":null"), "null systemId must appear as null")
         assertTrue(content.contains("\"systemNames\":{\"CI001\":\"Платежи\"}"))
         assertTrue(content.contains("\"authorNames\":{\"a@x.com\":\"Иван\"}"))
 
-        val css = File(outputDir, "assets/report.css")
-        assertTrue(css.isFile, "assets/report.css should be written")
+        // report.js (IIFE) встроен
+        assertTrue(
+            content.trim().contains("(function() {") && content.contains("'use strict';"),
+            "report.js IIFE should be inlined"
+        )
+        assertTrue(content.contains("(function init() {"), "init IIFE preserved")
 
-        val js = File(outputDir, "assets/report.js")
-        assertTrue(js.isFile, "assets/report.js should be written")
-
-        val chartJs = File(outputDir, "assets/chart.umd.js")
-        assertTrue(chartJs.isFile && chartJs.length() > 0, "assets/chart.umd.js should be copied and non-empty")
+        // Chart.js встроен: проверяем по сигнатуре лицензионного заголовка библиотеки
+        assertTrue(
+            content.contains("Chart.js") || content.contains("chart.js"),
+            "Chart.js source should be inlined"
+        )
     }
 
     @Test
-    @DisplayName("generate with empty records produces valid empty report")
+    @DisplayName("generate with empty records produces a single valid empty report.html")
     fun generatesEmptyReport() {
         val outputDir = tempDir.resolve("empty-report").toString()
 
@@ -67,10 +77,13 @@ class HtmlReportGeneratorTest {
             outputDir = outputDir
         )
 
-        val reportData = File(outputDir, "assets/report-data.js").readText(Charsets.UTF_8)
-        assertTrue(reportData.contains("\"records\":[]"))
-        assertTrue(reportData.contains("\"systemNames\":{}"))
-        assertTrue(reportData.contains("\"authorNames\":{}"))
+        val reportHtml = File(outputDir, "report.html")
+        assertTrue(reportHtml.isFile, "report.html should be written")
+
+        val content = reportHtml.readText(Charsets.UTF_8)
+        assertTrue(content.contains("\"records\":[]"))
+        assertTrue(content.contains("\"systemNames\":{}"))
+        assertTrue(content.contains("\"authorNames\":{}"))
     }
 
     @Test
@@ -89,7 +102,7 @@ class HtmlReportGeneratorTest {
     }
 
     @Test
-    @DisplayName("generate accepts custom zoneId and stamps it into report-data.js")
+    @DisplayName("generate accepts custom zoneId and stamps it into inlined report data")
     fun stampsCustomZoneId() {
         val outputDir = tempDir.resolve("zoned-report").toString()
 
@@ -100,7 +113,7 @@ class HtmlReportGeneratorTest {
             zoneId = ZoneId.of("Europe/Moscow")
         )
 
-        val content = File(outputDir, "assets/report-data.js").readText(Charsets.UTF_8)
+        val content = File(outputDir, "report.html").readText(Charsets.UTF_8)
         // ISO_OFFSET_DATE_TIME for Europe/Moscow ends with offset like +03:00 or +02:00 (DST).
         // Проверяем наличие смещения, а не конкретного значения, чтобы тест был детерминирован
         // в любой момент года.
@@ -118,14 +131,29 @@ class HtmlReportGeneratorTest {
             outputDir = outputDir
         )
 
-        val js = File(outputDir, "assets/report.js").readText(Charsets.UTF_8)
+        val content = File(outputDir, "report.html").readText(Charsets.UTF_8)
         // IIFE opening
-        assertTrue(js.trim().startsWith("(function() {"), "JS should start with IIFE, got: ${js.take(50)}")
+        assertTrue(content.contains("(function() {"), "JS IIFE opening should be present")
         // Inner setup init still wrapped
-        assertTrue(js.contains("(function init() {"), "init IIFE preserved")
+        assertTrue(content.contains("(function init() {"), "init IIFE preserved")
         // Balanced outer IIFE close
-        assertTrue(js.trim().endsWith("})();"), "JS should end with IIFE close, got: ${js.takeLast(50)}")
+        assertTrue(content.contains("})();"), "JS IIFE close should be present")
         // use strict present
-        assertTrue(js.contains("'use strict';"))
+        assertTrue(content.contains("'use strict';"))
+    }
+
+    @Test
+    @DisplayName("report.html is self-contained: no external src/href references")
+    fun reportIsSelfContained() {
+        val outputDir = tempDir.resolve("self-contained").toString()
+        generator.generate(
+            records = emptyList(),
+            repoPath = "/repo",
+            outputDir = outputDir
+        )
+
+        val content = File(outputDir, "report.html").readText(Charsets.UTF_8)
+        assertFalse(content.contains("src=\"assets/"), "should not reference external assets/ scripts")
+        assertFalse(content.contains("href=\"assets/"), "should not reference external assets/ styles")
     }
 }

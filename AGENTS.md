@@ -13,7 +13,7 @@
 
 - `src/main/kotlin/com/analyzer/` — основной код.
 - `src/test/kotlin/com/analyzer/` — unit-тесты (JUnit 5).
-- `src/main/resources/report-assets/chart.umd.js` — Chart.js, копируется в HTML-отчёт.
+- `src/main/resources/report-assets/chart.umd.js` — Chart.js, встраивается inline в единый HTML-отчёт `report.html`.
 - `docs/git-test-analyzer.md` — пользовательская документация.
 
 ## Темп безопасности
