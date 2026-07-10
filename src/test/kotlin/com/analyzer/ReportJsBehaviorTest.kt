@@ -143,10 +143,11 @@ class ReportJsBehaviorTest {
         assertFalse(summary.contains("a@x.com"), "2026 record must be excluded from YTD of 2027, got: $summary")
 
         // Окно YTD в поясе браузера — один календарный месяц (Дек 2026 по UTC):
-        // b в нём активен, a — нет.
+        // a в нём молчал («1 из 1»), b активен — зелёная карточка «без пропусков».
         val inactive = ctx.innerHtml("inactiveList")
         assertTrue(inactive.contains("a@x.com") && inactive.contains("1 из 1"), "got: $inactive")
-        assertFalse(inactive.contains("b@x.com"), "got: $inactive")
+        val cardB = inactive.substringAfter("b@x.com")
+        assertTrue(inactive.contains("b@x.com") && cardB.contains("без пропусков"), "got: $inactive")
     }
 
     @Test
@@ -167,11 +168,14 @@ class ReportJsBehaviorTest {
         ctx.js("document.getElementById('applyCustom').click();")
 
         assertEquals("<strong>1</strong>", ctx.innerHtml("totalCount"), "April filter should include the record")
+        val inactive = ctx.innerHtml("inactiveList")
+        assertFalse(ctx.isHidden("inactiveList"))
         assertTrue(
-            ctx.isHidden("inactiveList"),
-            "author active in April must not be listed as inactive, got: ${ctx.innerHtml("inactiveList")}"
+            inactive.contains("data-month=\"2026-04\" data-count=\"1\""),
+            "April must be a green cell — the record lands in April in browser time, got: $inactive"
         )
-        assertFalse(ctx.isHidden("noInactiveData"))
+        assertFalse(inactive.contains("inactive-month-zero"), "no zero months expected, got: $inactive")
+        assertTrue(inactive.contains("без пропусков"), "active author must get a clean badge, got: $inactive")
     }
 
     @Test
@@ -198,11 +202,14 @@ class ReportJsBehaviorTest {
         ctx.clickPeriod("ytd")
         val html = ctx.innerHtml("inactiveList")
 
-        assertFalse(html.contains("Автор А"), "author with tests every month must be absent")
+        // Автор А активен каждый месяц — показан зелёной карточкой в конце списка
+        val cardA = html.substringAfter("Автор А")
+        assertTrue(html.contains("Автор А") && cardA.contains("без пропусков"), "got: $html")
+        assertTrue(html.contains("inactive-card-ok"), "fully active card must be green, got: $html")
         assertTrue(html.contains("Автор Б") && html.contains("5 из 7"), "got: $html")
         assertTrue(html.contains("Автор В") && html.contains("7 из 7"), "got: $html")
         assertTrue(
-            html.indexOf("Автор В") < html.indexOf("Автор Б"),
+            html.indexOf("Автор В") < html.indexOf("Автор Б") && html.indexOf("Автор Б") < html.indexOf("Автор А"),
             "authors must be sorted by zero-month count descending, got: $html"
         )
 
@@ -247,9 +254,9 @@ class ReportJsBehaviorTest {
         val inactive = ctx.innerHtml("inactiveList")
         assertFalse(inactive.contains("b@x.com"), "excluded by email must be hidden, got: $inactive")
         assertFalse(inactive.contains("Автор В"), "excluded by display name must be hidden, got: $inactive")
-        // a активен каждый месяц, оба неактивных исключены — секция показывает заглушку
-        assertTrue(ctx.isHidden("inactiveList"))
-        assertFalse(ctx.isHidden("noInactiveData"))
+        // Оба неактивных исключены; активный каждый месяц a показан зелёной карточкой
+        assertFalse(ctx.isHidden("inactiveList"))
+        assertTrue(inactive.contains("a@x.com") && inactive.contains("без пропусков"), "got: $inactive")
         // На остальные секции исключение не влияет: запись b за период есть в общей сводке
         assertTrue(ctx.innerHtml("summaryBody").contains("b@x.com"))
     }

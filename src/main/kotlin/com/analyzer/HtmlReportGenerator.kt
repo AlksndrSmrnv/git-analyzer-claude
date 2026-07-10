@@ -240,11 +240,11 @@ ${css}
     </div>
 
     <div class="summary-section">
-        <h2>Тестировщики без автотестов</h2>
-        <p class="section-hint">Месяцы выбранного периода, в которые автор не добавил ни одного автотеста.
-            Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
+        <h2>Активность тестировщиков по месяцам</h2>
+        <p class="section-hint">Красным — месяцы выбранного периода без единого автотеста, сверху — тестировщики
+            с наибольшим числом пустых месяцев. Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
         <div id="inactiveList" class="is-hidden"></div>
-        <p class="no-data is-hidden" id="noInactiveData">За выбранный период у всех тестировщиков есть автотесты в каждом месяце.</p>
+        <p class="no-data is-hidden" id="noInactiveData">Нет данных за выбранный период.</p>
     </div>
 
     <div class="charts-section">
@@ -483,6 +483,9 @@ tbody tr:hover { background: #f8f9fb; }
     border-left-color: #dc2626;
     background: #fffafa;
 }
+.inactive-card-ok {
+    border-left-color: #16a34a;
+}
 .inactive-card-header {
     display: flex;
     align-items: center;
@@ -505,6 +508,7 @@ tbody tr:hover { background: #f8f9fb; }
 .inactive-badge-high { background: #fee2e2; color: #dc2626; }
 .inactive-badge-mid { background: #ffedd5; color: #ea580c; }
 .inactive-badge-low { background: #fef9c3; color: #a16207; }
+.inactive-badge-none { background: #dcfce7; color: #16a34a; }
 .inactive-months {
     display: flex;
     flex-wrap: wrap;
@@ -742,7 +746,7 @@ const REPORT_DATA = window.REPORT_DATA || { records: [], systemNames: {}, author
 const DATA = REPORT_DATA.records || [];
 const SYSTEM_NAMES = REPORT_DATA.systemNames || {};
 const AUTHOR_NAMES = REPORT_DATA.authorNames || {};
-// Исключённые из сводки «Тестировщики без автотестов» (e-mail или имя).
+// Исключённые из сводки «Активность тестировщиков по месяцам» (e-mail или имя).
 const EXCLUDED_TESTERS = new Set(REPORT_DATA.excludedTesters || []);
 const NOW = (() => {
     if (!REPORT_DATA.generatedAt) return new Date();
@@ -1029,12 +1033,13 @@ function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
         countsByAuthor[author][key] = (countsByAuthor[author][key] || 0) + 1;
     });
 
+    // Показываем всех тестировщиков: нарушители сверху (по убыванию числа
+    // пустых месяцев), полностью активные — зелёными карточками внизу.
     const rows = [...testers]
         .map(author => {
             const counts = countsByAuthor[author] || {};
             return { author: author, counts: counts, zeroMonths: months.filter(m => !counts[m]) };
         })
-        .filter(e => e.zeroMonths.length > 0)
         .sort((a, b) => b.zeroMonths.length - a.zeroMonths.length || a.author.localeCompare(b.author));
 
     if (months.length === 0 || rows.length === 0) {
@@ -1050,8 +1055,11 @@ function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
     list.innerHTML = rows.map(e => {
         const zeroCount = e.zeroMonths.length;
         const isFull = zeroCount === months.length;
-        const badgeCls = isFull ? 'inactive-badge-high'
-            : (zeroCount / months.length >= 0.5 ? 'inactive-badge-mid' : 'inactive-badge-low');
+        const isClean = zeroCount === 0;
+        const badgeCls = isClean ? 'inactive-badge-none'
+            : (isFull ? 'inactive-badge-high'
+                : (zeroCount / months.length >= 0.5 ? 'inactive-badge-mid' : 'inactive-badge-low'));
+        const cardCls = isFull ? ' inactive-card-full' : (isClean ? ' inactive-card-ok' : '');
         const cells = months.map(m => {
             const count = e.counts[m] || 0;
             const parts = m.split('-');
@@ -1062,11 +1070,12 @@ function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
                 '<span class="inactive-month-label">' + escapeHtml(label) + '</span>' +
                 '<span class="inactive-month-value">' + count + '</span></div>';
         }).join('');
-        return '<div class="inactive-card' + (isFull ? ' inactive-card-full' : '') + '">' +
+        const badgeText = isClean ? '\u0431\u0435\u0437 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043e\u0432'
+            : zeroCount + ' \u0438\u0437 ' + months.length + ' \u043c\u0435\u0441. \u0431\u0435\u0437 \u0442\u0435\u0441\u0442\u043e\u0432';
+        return '<div class="inactive-card' + cardCls + '">' +
             '<div class="inactive-card-header">' +
             '<span class="inactive-name">' + escapeHtml(e.author) + '</span>' +
-            '<span class="inactive-badge ' + badgeCls + '">' + zeroCount + ' \u0438\u0437 ' + months.length +
-            ' \u043c\u0435\u0441. \u0431\u0435\u0437 \u0442\u0435\u0441\u0442\u043e\u0432</span></div>' +
+            '<span class="inactive-badge ' + badgeCls + '">' + badgeText + '</span></div>' +
             '<div class="inactive-months">' + cells + '</div></div>';
     }).join('');
 }

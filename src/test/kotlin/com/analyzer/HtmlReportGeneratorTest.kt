@@ -63,7 +63,7 @@ class HtmlReportGeneratorTest {
         assertTrue(content.contains("case 'ytd':"), "getPeriodRange should handle 'ytd'")
         assertTrue(content.contains("\"yearStart\":\""), "yearStart should be embedded into REPORT_DATA")
 
-        // Сводка «Тестировщики без автотестов»: контейнер карточек, рендер-функция
+        // Сводка «Активность тестировщиков по месяцам»: контейнер карточек, рендер-функция
         // и список исключённых во встроенных данных
         assertTrue(content.contains("id=\"inactiveList\""), "inactive testers list should be present")
         assertTrue(content.contains("function renderInactiveTesters("),
