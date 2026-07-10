@@ -26,8 +26,8 @@ class HtmlReportGenerator {
         outputDir: String,
         systemNames: Map<String, String> = emptyMap(),
         authorNames: Map<String, String> = emptyMap(),
-        excludedTesters: Set<String> = emptySet(),
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        excludedTesters: Set<String> = emptySet()
     ) {
         val generatedAtZoned = ZonedDateTime.now(zoneId)
         val generatedAt = generatedAtZoned
@@ -1008,17 +1008,22 @@ function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
     // Системный фильтр намеренно не применяется: вопрос «написал ли автор
     // хотя бы один автотест за месяц» не зависит от выбранной системы.
     // Ростер тестировщиков — все авторы из данных за всю историю, кроме
-    // исключённых через EXCLUDED_TESTERS (матчим e-mail и отображаемое имя).
+    // исключённых через EXCLUDED_TESTERS.
     const months = getPeriodMonths(periodType, cMonth, cYear, cQuarter);
+    // Нормализуем исключения к отображаемым именам: в EXCLUDED_TESTERS можно
+    // указать любой из e-mail человека или его имя из AUTHOR_NAMES, а исключить
+    // нужно человека целиком — включая записи с остальных его адресов.
+    const excludedResolved = new Set([...EXCLUDED_TESTERS].map(resolveAuthor));
     const testers = new Set();
     DATA.forEach(r => {
-        if (EXCLUDED_TESTERS.has(r.author) || EXCLUDED_TESTERS.has(resolveAuthor(r.author))) return;
-        testers.add(resolveAuthor(r.author));
+        const author = resolveAuthor(r.author);
+        if (!excludedResolved.has(author)) testers.add(author);
     });
 
     const countsByAuthor = {};
     filterByPeriod(DATA, periodType, cMonth, cYear, cQuarter).forEach(r => {
         const author = resolveAuthor(r.author);
+        if (excludedResolved.has(author)) return;
         if (!countsByAuthor[author]) countsByAuthor[author] = {};
         const key = monthKey(parseDate(r.date));
         countsByAuthor[author][key] = (countsByAuthor[author][key] || 0) + 1;

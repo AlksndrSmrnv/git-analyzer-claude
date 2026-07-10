@@ -255,6 +255,38 @@ class ReportJsBehaviorTest {
     }
 
     @Test
+    @DisplayName("EXCLUDED_TESTERS: исключение по одному e-mail скрывает человека со всеми его адресами")
+    fun excludedTesterWithMultipleEmailsIsFullyHidden() {
+        // У Ивана два адреса, объединённых через AUTHOR_NAMES; исключён только
+        // старый. Записи с обоих адресов не должны ни вернуть его в ростер,
+        // ни попасть в подсчёты карточек.
+        val records = (1..7).map { m ->
+            record("a@x.com", "2026-%02d-05T10:00:00+03:00".format(m), "monthly$m")
+        } + listOf(
+            record("old@x.com", "2026-01-15T10:00:00+03:00", "oldJan"),
+            record("new@x.com", "2026-05-20T10:00:00+03:00", "newMay"),
+            record("b@x.com", "2026-02-10T10:00:00+03:00", "febOnly")
+        )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow",
+            authorNames = mapOf("old@x.com" to "Иван", "new@x.com" to "Иван"),
+            excludedTesters = setOf("old@x.com")
+        )
+
+        ctx.clickPeriod("ytd")
+
+        val inactive = ctx.innerHtml("inactiveList")
+        assertFalse(inactive.contains("Иван"), "person must be excluded with all his emails, got: $inactive")
+        // Непричастный автор с тестом только в феврале остаётся в сводке
+        assertTrue(
+            inactive.contains("b@x.com") && inactive.contains("6 из 7"),
+            "unrelated author must still be listed, got: $inactive"
+        )
+    }
+
+    @Test
     @DisplayName("Пустые данные: отчёт не падает, показываются заглушки")
     fun emptyDataShowsPlaceholders() {
         val ctx = loadReport(
