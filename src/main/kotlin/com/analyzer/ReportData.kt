@@ -17,7 +17,7 @@ data class ReportData(
     val yearStart: String,
     /**
      * Коллеги (e-mail или отображаемое имя из authorNames), которых сводка
-     * «Тестировщики без автотестов» не учитывает — например, уволившиеся.
+     * «Активность тестировщиков по месяцам» не учитывает — например, уволившиеся.
      */
     val excludedTesters: List<String> = emptyList()
 )
