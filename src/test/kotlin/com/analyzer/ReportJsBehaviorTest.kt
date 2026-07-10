@@ -49,7 +49,8 @@ class ReportJsBehaviorTest {
         records: List<TestRecord>,
         generatedAt: String,
         browserZone: String,
-        authorNames: Map<String, String> = emptyMap()
+        authorNames: Map<String, String> = emptyMap(),
+        excludedTesters: Set<String> = emptySet()
     ): Context {
         val generatedAtParsed = java.time.OffsetDateTime.parse(generatedAt)
         val yearStart = generatedAtParsed.toLocalDate().withDayOfYear(1)
@@ -61,7 +62,8 @@ class ReportJsBehaviorTest {
             records = records,
             repoPath = "/repo",
             outputDir = outputDir,
-            authorNames = authorNames
+            authorNames = authorNames,
+            excludedTesters = excludedTesters
         )
         val html = File(outputDir, "report.html").readText(Charsets.UTF_8)
         val scripts = Regex("<script>(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
@@ -111,8 +113,8 @@ class ReportJsBehaviorTest {
         assertTrue(ctx.innerHtml("summaryBody").contains("a@x.com"))
         // Период — Янв..Июл 2026 (7 месяцев), тест был только в марте
         assertTrue(
-            ctx.innerHtml("inactiveBody").contains("6 из 7"),
-            "author with a single March test should have 6 of 7 zero months, got: ${ctx.innerHtml("inactiveBody")}"
+            ctx.innerHtml("inactiveList").contains("6 из 7"),
+            "author with a single March test should have 6 of 7 zero months, got: ${ctx.innerHtml("inactiveList")}"
         )
     }
 
@@ -142,7 +144,7 @@ class ReportJsBehaviorTest {
 
         // Окно YTD в поясе браузера — один календарный месяц (Дек 2026 по UTC):
         // b в нём активен, a — нет.
-        val inactive = ctx.innerHtml("inactiveBody")
+        val inactive = ctx.innerHtml("inactiveList")
         assertTrue(inactive.contains("a@x.com") && inactive.contains("1 из 1"), "got: $inactive")
         assertFalse(inactive.contains("b@x.com"), "got: $inactive")
     }
@@ -166,8 +168,8 @@ class ReportJsBehaviorTest {
 
         assertEquals("<strong>1</strong>", ctx.innerHtml("totalCount"), "April filter should include the record")
         assertTrue(
-            ctx.isHidden("inactiveTable"),
-            "author active in April must not be listed as inactive, got: ${ctx.innerHtml("inactiveBody")}"
+            ctx.isHidden("inactiveList"),
+            "author active in April must not be listed as inactive, got: ${ctx.innerHtml("inactiveList")}"
         )
         assertFalse(ctx.isHidden("noInactiveData"))
     }
@@ -194,15 +196,93 @@ class ReportJsBehaviorTest {
         )
 
         ctx.clickPeriod("ytd")
-        val html = ctx.innerHtml("inactiveBody")
+        val html = ctx.innerHtml("inactiveList")
 
         assertFalse(html.contains("Автор А"), "author with tests every month must be absent")
         assertTrue(html.contains("Автор Б") && html.contains("5 из 7"), "got: $html")
-        assertTrue(html.contains("Фев 2026, Мар 2026, Апр 2026, Июн 2026, Июл 2026"), "got: $html")
         assertTrue(html.contains("Автор В") && html.contains("7 из 7"), "got: $html")
         assertTrue(
             html.indexOf("Автор В") < html.indexOf("Автор Б"),
             "authors must be sorted by zero-month count descending, got: $html"
+        )
+
+        // Карточка Б: полоса месяцев — нулевой февраль красный, май с одним тестом зелёный
+        val cardB = html.substringAfter("Автор Б")
+        assertTrue(
+            cardB.contains("inactive-month-zero") && cardB.contains("data-month=\"2026-02\" data-count=\"0\""),
+            "February must be a zero cell, got: $cardB"
+        )
+        assertTrue(
+            cardB.contains("inactive-month-ok") && cardB.contains("data-month=\"2026-05\" data-count=\"1\""),
+            "May must be a green cell with the test count, got: $cardB"
+        )
+
+        // Бейджи по доле нулевых месяцев: В — 7 из 7 (high) с выделенной карточкой,
+        // Б — 5 из 7 (mid)
+        assertTrue(html.contains("inactive-card-full"), "fully inactive card must be highlighted, got: $html")
+        assertTrue(html.contains("inactive-badge-high"), "7 of 7 zero months must be a high badge, got: $html")
+        assertTrue(html.contains("inactive-badge-mid"), "5 of 7 zero months must be a mid badge, got: $html")
+    }
+
+    @Test
+    @DisplayName("EXCLUDED_TESTERS: исключённые не попадают в сводку неактивных, но остаются в остальном отчёте")
+    fun excludedTestersAreHiddenFromInactiveSummary() {
+        val records = (1..7).map { m ->
+            record("a@x.com", "2026-%02d-05T10:00:00+03:00".format(m), "monthly$m")
+        } + listOf(
+            record("b@x.com", "2026-01-15T10:00:00+03:00", "jan"),
+            record("c@x.com", "2025-11-03T10:00:00+03:00", "old")
+        )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow",
+            authorNames = mapOf("c@x.com" to "Автор В"),
+            // b исключён по e-mail, c — по отображаемому имени из authorNames
+            excludedTesters = setOf("b@x.com", "Автор В")
+        )
+
+        ctx.clickPeriod("ytd")
+
+        val inactive = ctx.innerHtml("inactiveList")
+        assertFalse(inactive.contains("b@x.com"), "excluded by email must be hidden, got: $inactive")
+        assertFalse(inactive.contains("Автор В"), "excluded by display name must be hidden, got: $inactive")
+        // a активен каждый месяц, оба неактивных исключены — секция показывает заглушку
+        assertTrue(ctx.isHidden("inactiveList"))
+        assertFalse(ctx.isHidden("noInactiveData"))
+        // На остальные секции исключение не влияет: запись b за период есть в общей сводке
+        assertTrue(ctx.innerHtml("summaryBody").contains("b@x.com"))
+    }
+
+    @Test
+    @DisplayName("EXCLUDED_TESTERS: исключение по одному e-mail скрывает человека со всеми его адресами")
+    fun excludedTesterWithMultipleEmailsIsFullyHidden() {
+        // У Ивана два адреса, объединённых через AUTHOR_NAMES; исключён только
+        // старый. Записи с обоих адресов не должны ни вернуть его в ростер,
+        // ни попасть в подсчёты карточек.
+        val records = (1..7).map { m ->
+            record("a@x.com", "2026-%02d-05T10:00:00+03:00".format(m), "monthly$m")
+        } + listOf(
+            record("old@x.com", "2026-01-15T10:00:00+03:00", "oldJan"),
+            record("new@x.com", "2026-05-20T10:00:00+03:00", "newMay"),
+            record("b@x.com", "2026-02-10T10:00:00+03:00", "febOnly")
+        )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow",
+            authorNames = mapOf("old@x.com" to "Иван", "new@x.com" to "Иван"),
+            excludedTesters = setOf("old@x.com")
+        )
+
+        ctx.clickPeriod("ytd")
+
+        val inactive = ctx.innerHtml("inactiveList")
+        assertFalse(inactive.contains("Иван"), "person must be excluded with all his emails, got: $inactive")
+        // Непричастный автор с тестом только в феврале остаётся в сводке
+        assertTrue(
+            inactive.contains("b@x.com") && inactive.contains("6 из 7"),
+            "unrelated author must still be listed, got: $inactive"
         )
     }
 
@@ -219,7 +299,7 @@ class ReportJsBehaviorTest {
 
         assertTrue(ctx.isHidden("summaryTable"))
         assertFalse(ctx.isHidden("noData"))
-        assertTrue(ctx.isHidden("inactiveTable"))
+        assertTrue(ctx.isHidden("inactiveList"))
         assertFalse(ctx.isHidden("noInactiveData"))
     }
 
@@ -237,7 +317,7 @@ class ReportJsBehaviorTest {
         ctx.clickPeriod("custom")
         ctx.js("document.getElementById('applyCustom').click();")
 
-        assertTrue(ctx.isHidden("inactiveTable"), "December 2026 has not started yet")
+        assertTrue(ctx.isHidden("inactiveList"), "December 2026 has not started yet")
         assertFalse(ctx.isHidden("noInactiveData"))
     }
 

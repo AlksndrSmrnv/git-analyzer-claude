@@ -55,7 +55,8 @@ class ReportDataSerializationTest {
             systemNames = mapOf("CI1" to "Платежи"),
             authorNames = mapOf("a@x.com" to "Иван"),
             generatedAt = "2026-04-01T12:00:00+03:00",
-            yearStart = "2026-01-01T00:00:00+03:00"
+            yearStart = "2026-01-01T00:00:00+03:00",
+            excludedTesters = listOf("gone@x.com")
         )
         val serialized = json.encodeToString(ReportData.serializer(), data)
         val parsed = json.decodeFromString(ReportData.serializer(), serialized)
@@ -68,6 +69,7 @@ class ReportDataSerializationTest {
         assertEquals("Иван", parsed.authorNames["a@x.com"])
         assertEquals("2026-04-01T12:00:00+03:00", parsed.generatedAt)
         assertEquals("2026-01-01T00:00:00+03:00", parsed.yearStart)
+        assertEquals(listOf("gone@x.com"), parsed.excludedTesters)
     }
 
     @Test
