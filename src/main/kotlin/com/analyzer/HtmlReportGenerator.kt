@@ -677,6 +677,13 @@ const NOW = (() => {
     const parsed = new Date(REPORT_DATA.generatedAt);
     return isNaN(parsed.getTime()) ? new Date() : parsed;
 })();
+// Год формирования отчёта — первые 4 символа ISO-строки generatedAt, т.е. год
+// в часовом поясе генерации. NOW.getFullYear() так использовать нельзя: он
+// считается в поясе браузера и около Нового года может дать соседний год.
+const REPORT_YEAR = (() => {
+    const y = parseInt(String(REPORT_DATA.generatedAt || '').slice(0, 4), 10);
+    return isNaN(y) ? NOW.getFullYear() : y;
+})();
 
 function setHidden(element, hidden) {
     element.classList.toggle('is-hidden', hidden);
@@ -697,6 +704,14 @@ function resolveSystemLabel(id) {
 }
 
 function parseDate(iso) { return new Date(iso); }
+
+// Ключ месяца YYYY-MM в часовом поясе браузера — той же временной системе,
+// в которой работают getPeriodRange/filterByPeriod. Брать месяц срезом строки
+// (r.date.slice(0, 7)) нельзя: у записи может быть другой UTC-offset, и тогда
+// запись пройдёт фильтр одного месяца, а ключ получит соседнего.
+function monthKey(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
 
 function fmtDateDM(d, showYear) {
     const dd = String(d.getDate()).padStart(2, '0');
@@ -719,7 +734,7 @@ function updatePeriodButtonLabels() {
     ranges.month = fmtRange(s, now);
     s = new Date(now); s.setFullYear(now.getFullYear() - 1);
     ranges.year = fmtRange(s, now);
-    ranges.ytd = fmtRange(new Date(now.getFullYear(), 0, 1), now);
+    ranges.ytd = fmtRange(new Date(REPORT_YEAR, 0, 1), now);
     document.querySelectorAll('.period-btn').forEach(btn => {
         const p = btn.dataset.period;
         if (ranges[p]) {
@@ -747,7 +762,7 @@ function getPeriodRange(periodType, cMonth, cYear, cQuarter) {
             end = new Date(now);
             break;
         case 'ytd':
-            start = new Date(now.getFullYear(), 0, 1);
+            start = new Date(REPORT_YEAR, 0, 1);
             end = new Date(now);
             break;
         case 'quarter': {
@@ -889,7 +904,7 @@ function monthKeysInRange(start, end) {
     const d = new Date(start.getFullYear(), start.getMonth(), 1);
     const last = new Date(end.getFullYear(), end.getMonth(), 1);
     while (d <= last) {
-        keys.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+        keys.push(monthKey(d));
         d.setMonth(d.getMonth() + 1);
     }
     return keys;
@@ -928,7 +943,7 @@ function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
     filterByPeriod(DATA, periodType, cMonth, cYear, cQuarter).forEach(r => {
         const author = resolveAuthor(r.author);
         if (!activeMonthsByAuthor[author]) activeMonthsByAuthor[author] = new Set();
-        activeMonthsByAuthor[author].add(r.date.slice(0, 7));
+        activeMonthsByAuthor[author].add(monthKey(parseDate(r.date)));
     });
 
     const rows = [...testers]
