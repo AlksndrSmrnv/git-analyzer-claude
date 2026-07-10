@@ -41,6 +41,9 @@ class ReportJsBehaviorTest {
      * Генерирует отчёт, извлекает из него данные и report.js и исполняет их
      * в GraalJS. init() внутри report.js отрабатывает сразу (как в браузере)
      * и выставляет период «Последняя неделя».
+     *
+     * generatedAt и согласованный с ним yearStart подменяются после генерации,
+     * потому что generate() штампует реальное текущее время.
      */
     private fun loadReport(
         records: List<TestRecord>,
@@ -48,6 +51,11 @@ class ReportJsBehaviorTest {
         browserZone: String,
         authorNames: Map<String, String> = emptyMap()
     ): Context {
+        val generatedAtParsed = java.time.OffsetDateTime.parse(generatedAt)
+        val yearStart = generatedAtParsed.toLocalDate().withDayOfYear(1)
+            .atStartOfDay()
+            .atOffset(generatedAtParsed.offset)
+            .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         val outputDir = tempDir.resolve("report-${System.nanoTime()}").toString()
         generator.generate(
             records = records,
@@ -71,6 +79,7 @@ class ReportJsBehaviorTest {
         // (все вызовы графиков под проверкой typeof Chart !== 'undefined').
         ctx.eval("js", scripts[1])
         ctx.eval("js", "window.REPORT_DATA.generatedAt = '$generatedAt';")
+        ctx.eval("js", "window.REPORT_DATA.yearStart = '$yearStart';")
         ctx.eval("js", scripts[2])
         context = ctx
         return ctx
@@ -108,23 +117,34 @@ class ReportJsBehaviorTest {
     }
 
     @Test
-    @DisplayName("YTD: используется год формирования отчёта, а не год браузера")
-    fun ytdUsesReportYearNotBrowserYear() {
-        // Отчёт сформирован 1 января 2027 в Москве; браузер в UTC ещё видит
-        // 31 декабря 2026 (NOW.getFullYear() == 2026). YTD обязан считаться
-        // от 1 января 2027, поэтому июньская запись 2026 года не попадает.
+    @DisplayName("YTD: начало года считается в часовом поясе формирования отчёта")
+    fun ytdStartsInReportTimezone() {
+        // Отчёт сформирован 01.01.2027 00:30 в Москве; браузер в UTC ещё видит
+        // 31 декабря 2026. Начало YTD — точный момент 2027-01-01T00:00+03:00
+        // (= 21:00Z 31 декабря), а не полночь в поясе браузера: тест, добавленный
+        // в первые полчаса 2027 года по Москве, попадает в период, а записи
+        // 2026 года — нет, и диапазон не переворачивается.
         val ctx = loadReport(
-            records = listOf(record("a@x.com", "2026-06-15T12:00:00+03:00", "juneTest")),
+            records = listOf(
+                record("a@x.com", "2026-06-15T12:00:00+03:00", "juneTest"),
+                record("b@x.com", "2027-01-01T00:15:00+03:00", "newYearTest")
+            ),
             generatedAt = "2027-01-01T00:30:00+03:00",
             browserZone = "UTC"
         )
 
         ctx.clickPeriod("ytd")
 
-        assertTrue(ctx.isHidden("summaryTable"), "no records should match YTD of 2027")
-        assertFalse(ctx.isHidden("noData"))
-        assertTrue(ctx.isHidden("inactiveTable"), "no months of 2027 have elapsed in browser time")
-        assertFalse(ctx.isHidden("noInactiveData"))
+        assertEquals("<strong>1</strong>", ctx.innerHtml("totalCount"))
+        val summary = ctx.innerHtml("summaryBody")
+        assertTrue(summary.contains("b@x.com"), "record from the first 30 minutes of 2027 (Moscow) must be included, got: $summary")
+        assertFalse(summary.contains("a@x.com"), "2026 record must be excluded from YTD of 2027, got: $summary")
+
+        // Окно YTD в поясе браузера — один календарный месяц (Дек 2026 по UTC):
+        // b в нём активен, a — нет.
+        val inactive = ctx.innerHtml("inactiveBody")
+        assertTrue(inactive.contains("a@x.com") && inactive.contains("1 из 1"), "got: $inactive")
+        assertFalse(inactive.contains("b@x.com"), "got: $inactive")
     }
 
     @Test

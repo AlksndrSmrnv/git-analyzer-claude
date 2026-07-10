@@ -33,12 +33,16 @@ class HtmlReportGenerator {
             .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss XXX"))
         val generatedAtIso = generatedAtZoned
             .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val yearStartIso = generatedAtZoned.toLocalDate().withDayOfYear(1)
+            .atStartOfDay(zoneId)
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
         val reportData = ReportData(
             records = records,
             systemNames = systemNames,
             authorNames = authorNames,
-            generatedAt = generatedAtIso
+            generatedAt = generatedAtIso,
+            yearStart = yearStartIso
         )
         val reportJsonString = reportJson.encodeToString(ReportData.serializer(), reportData)
 
@@ -677,12 +681,13 @@ const NOW = (() => {
     const parsed = new Date(REPORT_DATA.generatedAt);
     return isNaN(parsed.getTime()) ? new Date() : parsed;
 })();
-// Год формирования отчёта — первые 4 символа ISO-строки generatedAt, т.е. год
-// в часовом поясе генерации. NOW.getFullYear() так использовать нельзя: он
-// считается в поясе браузера и около Нового года может дать соседний год.
-const REPORT_YEAR = (() => {
-    const y = parseInt(String(REPORT_DATA.generatedAt || '').slice(0, 4), 10);
-    return isNaN(y) ? NOW.getFullYear() : y;
+// Точный момент начала года формирования отчёта (1 января 00:00 в часовом
+// поясе генерации) — вычислен на стороне Kotlin и передан отдельным полем.
+// Восстановить его в браузере нельзя: new Date(год, 0, 1) даёт полночь
+// в поясе браузера, около Нового года это соседний год/перевёрнутый диапазон.
+const YEAR_START = (() => {
+    const parsed = new Date(REPORT_DATA.yearStart || '');
+    return isNaN(parsed.getTime()) ? new Date(NOW.getFullYear(), 0, 1) : parsed;
 })();
 
 function setHidden(element, hidden) {
@@ -734,7 +739,7 @@ function updatePeriodButtonLabels() {
     ranges.month = fmtRange(s, now);
     s = new Date(now); s.setFullYear(now.getFullYear() - 1);
     ranges.year = fmtRange(s, now);
-    ranges.ytd = fmtRange(new Date(REPORT_YEAR, 0, 1), now);
+    ranges.ytd = fmtRange(YEAR_START, now);
     document.querySelectorAll('.period-btn').forEach(btn => {
         const p = btn.dataset.period;
         if (ranges[p]) {
@@ -762,7 +767,7 @@ function getPeriodRange(periodType, cMonth, cYear, cQuarter) {
             end = new Date(now);
             break;
         case 'ytd':
-            start = new Date(REPORT_YEAR, 0, 1);
+            start = new Date(YEAR_START);
             end = new Date(now);
             break;
         case 'quarter': {
