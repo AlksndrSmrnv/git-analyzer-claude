@@ -63,10 +63,13 @@ class HtmlReportGeneratorTest {
         assertTrue(content.contains("case 'ytd':"), "getPeriodRange should handle 'ytd'")
         assertTrue(content.contains("\"yearStart\":\""), "yearStart should be embedded into REPORT_DATA")
 
-        // Сводка «Тестировщики без автотестов»: таблица и рендер-функция
-        assertTrue(content.contains("id=\"inactiveTable\""), "inactive testers table should be present")
+        // Сводка «Тестировщики без автотестов»: контейнер карточек, рендер-функция
+        // и список исключённых во встроенных данных
+        assertTrue(content.contains("id=\"inactiveList\""), "inactive testers list should be present")
         assertTrue(content.contains("function renderInactiveTesters("),
             "renderInactiveTesters should be inlined into report.js")
+        assertTrue(content.contains("\"excludedTesters\":"),
+            "excludedTesters should be embedded into REPORT_DATA")
 
         // Chart.js встроен полноценным телом, а не только лицензионной шапкой:
         // Chart.js v4.4.0 UMD-бандл минифицирован, поэтому Chart.register/Chart.prototype

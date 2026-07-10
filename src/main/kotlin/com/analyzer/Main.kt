@@ -139,7 +139,8 @@ internal fun runAnalysis(
         htmlGenerator.generate(
             dedupedRecords, repoPath, outputDir,
             systemNames = AnalyzerConfig.SYSTEM_NAMES,
-            authorNames = AnalyzerConfig.AUTHOR_NAMES
+            authorNames = AnalyzerConfig.AUTHOR_NAMES,
+            excludedTesters = AnalyzerConfig.EXCLUDED_TESTERS
         )
         Logger.info("HTML report generated: $outputDir/report.html")
     }

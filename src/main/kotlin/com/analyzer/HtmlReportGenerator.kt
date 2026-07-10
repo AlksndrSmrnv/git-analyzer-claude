@@ -26,6 +26,7 @@ class HtmlReportGenerator {
         outputDir: String,
         systemNames: Map<String, String> = emptyMap(),
         authorNames: Map<String, String> = emptyMap(),
+        excludedTesters: Set<String> = emptySet(),
         zoneId: ZoneId = ZoneId.systemDefault()
     ) {
         val generatedAtZoned = ZonedDateTime.now(zoneId)
@@ -42,7 +43,8 @@ class HtmlReportGenerator {
             systemNames = systemNames,
             authorNames = authorNames,
             generatedAt = generatedAtIso,
-            yearStart = yearStartIso
+            yearStart = yearStartIso,
+            excludedTesters = excludedTesters.sorted()
         )
         val reportJsonString = reportJson.encodeToString(ReportData.serializer(), reportData)
 
@@ -239,17 +241,9 @@ ${css}
 
     <div class="summary-section">
         <h2>Тестировщики без автотестов</h2>
-        <p class="section-hint">Месяцы выбранного периода, в которые автор не добавил ни одного автотеста.</p>
-        <table id="inactiveTable" class="is-hidden">
-            <thead>
-                <tr>
-                    <th>Тестировщик</th>
-                    <th>Месяцев без тестов</th>
-                    <th>Месяцы</th>
-                </tr>
-            </thead>
-            <tbody id="inactiveBody"></tbody>
-        </table>
+        <p class="section-hint">Месяцы выбранного периода, в которые автор не добавил ни одного автотеста.
+            Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
+        <div id="inactiveList" class="is-hidden"></div>
         <p class="no-data is-hidden" id="noInactiveData">За выбранный период у всех тестировщиков есть автотесты в каждом месяце.</p>
     </div>
 
@@ -476,6 +470,77 @@ tbody tr:hover { background: #f8f9fb; }
     font-size: 13px;
     margin-bottom: 12px;
 }
+.inactive-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-left: 4px solid #d97706;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.inactive-card-full {
+    border-left-color: #dc2626;
+    background: #fffafa;
+}
+.inactive-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.inactive-name {
+    font-weight: 600;
+    font-size: 15px;
+}
+.inactive-badge {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.inactive-badge-high { background: #fee2e2; color: #dc2626; }
+.inactive-badge-mid { background: #ffedd5; color: #ea580c; }
+.inactive-badge-low { background: #fef9c3; color: #a16207; }
+.inactive-months {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.inactive-month {
+    min-width: 44px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    cursor: default;
+    position: relative;
+}
+.inactive-month-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    opacity: 0.75;
+}
+.inactive-month-value {
+    font-size: 13px;
+    font-weight: 700;
+}
+.inactive-month-zero {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #dc2626;
+}
+.inactive-month-ok {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #16a34a;
+}
 .chart-container {
     background: #fff;
     border-radius: 8px;
@@ -637,7 +702,8 @@ tbody tr:hover { background: #f8f9fb; }
 .heatmap-level-7 { background: rgba(37,99,235,0.75); color: #fff; }
 .heatmap-level-8 { background: rgba(37,99,235,0.85); color: #fff; }
 .heatmap-level-9 { background: rgba(37,99,235,0.95); color: #fff; }
-.heatmap-cell:hover::after {
+.heatmap-cell:hover::after,
+.inactive-month:hover::after {
     content: attr(data-tip);
     position: absolute;
     bottom: 110%;
@@ -676,6 +742,8 @@ const REPORT_DATA = window.REPORT_DATA || { records: [], systemNames: {}, author
 const DATA = REPORT_DATA.records || [];
 const SYSTEM_NAMES = REPORT_DATA.systemNames || {};
 const AUTHOR_NAMES = REPORT_DATA.authorNames || {};
+// Исключённые из сводки «Тестировщики без автотестов» (e-mail или имя).
+const EXCLUDED_TESTERS = new Set(REPORT_DATA.excludedTesters || []);
 const NOW = (() => {
     if (!REPORT_DATA.generatedAt) return new Date();
     const parsed = new Date(REPORT_DATA.generatedAt);
@@ -934,44 +1002,67 @@ function getPeriodMonths(periodType, cMonth, cYear, cQuarter) {
 }
 
 function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
-    const table = document.getElementById('inactiveTable');
-    const body = document.getElementById('inactiveBody');
+    const list = document.getElementById('inactiveList');
     const noData = document.getElementById('noInactiveData');
 
     // Системный фильтр намеренно не применяется: вопрос «написал ли автор
     // хотя бы один автотест за месяц» не зависит от выбранной системы.
-    // Ростер тестировщиков — все авторы из данных за всю историю.
+    // Ростер тестировщиков — все авторы из данных за всю историю, кроме
+    // исключённых через EXCLUDED_TESTERS (матчим e-mail и отображаемое имя).
     const months = getPeriodMonths(periodType, cMonth, cYear, cQuarter);
-    const testers = new Set(DATA.map(r => resolveAuthor(r.author)));
+    const testers = new Set();
+    DATA.forEach(r => {
+        if (EXCLUDED_TESTERS.has(r.author) || EXCLUDED_TESTERS.has(resolveAuthor(r.author))) return;
+        testers.add(resolveAuthor(r.author));
+    });
 
-    const activeMonthsByAuthor = {};
+    const countsByAuthor = {};
     filterByPeriod(DATA, periodType, cMonth, cYear, cQuarter).forEach(r => {
         const author = resolveAuthor(r.author);
-        if (!activeMonthsByAuthor[author]) activeMonthsByAuthor[author] = new Set();
-        activeMonthsByAuthor[author].add(monthKey(parseDate(r.date)));
+        if (!countsByAuthor[author]) countsByAuthor[author] = {};
+        const key = monthKey(parseDate(r.date));
+        countsByAuthor[author][key] = (countsByAuthor[author][key] || 0) + 1;
     });
 
     const rows = [...testers]
         .map(author => {
-            const active = activeMonthsByAuthor[author] || new Set();
-            return { author: author, zeroMonths: months.filter(m => !active.has(m)) };
+            const counts = countsByAuthor[author] || {};
+            return { author: author, counts: counts, zeroMonths: months.filter(m => !counts[m]) };
         })
         .filter(e => e.zeroMonths.length > 0)
         .sort((a, b) => b.zeroMonths.length - a.zeroMonths.length || a.author.localeCompare(b.author));
 
     if (months.length === 0 || rows.length === 0) {
-        setHidden(table, true);
+        setHidden(list, true);
         setHidden(noData, false);
         return;
     }
-    setHidden(table, false);
+    setHidden(list, false);
     setHidden(noData, true);
 
-    body.innerHTML = rows.map(e => {
-        const monthList = e.zeroMonths.map(m => formatLabel(m, 'all')).join(', ');
-        return '<tr><td>' + escapeHtml(e.author) + '</td><td>' +
-            e.zeroMonths.length + ' \u0438\u0437 ' + months.length + '</td><td>' +
-            escapeHtml(monthList) + '</td></tr>';
+    const multiYear = new Set(months.map(m => m.slice(0, 4))).size > 1;
+
+    list.innerHTML = rows.map(e => {
+        const zeroCount = e.zeroMonths.length;
+        const isFull = zeroCount === months.length;
+        const badgeCls = isFull ? 'inactive-badge-high'
+            : (zeroCount / months.length >= 0.5 ? 'inactive-badge-mid' : 'inactive-badge-low');
+        const cells = months.map(m => {
+            const count = e.counts[m] || 0;
+            const parts = m.split('-');
+            const label = MONTH_NAMES[parseInt(parts[1], 10) - 1] + (multiYear ? ' ' + parts[0].slice(2) : '');
+            const cls = count === 0 ? 'inactive-month-zero' : 'inactive-month-ok';
+            return '<div class="inactive-month ' + cls + '" data-month="' + m + '" data-count="' + count +
+                '" data-tip="' + escapeHtml(formatLabel(m, 'all') + ': ' + count) + '">' +
+                '<span class="inactive-month-label">' + escapeHtml(label) + '</span>' +
+                '<span class="inactive-month-value">' + count + '</span></div>';
+        }).join('');
+        return '<div class="inactive-card' + (isFull ? ' inactive-card-full' : '') + '">' +
+            '<div class="inactive-card-header">' +
+            '<span class="inactive-name">' + escapeHtml(e.author) + '</span>' +
+            '<span class="inactive-badge ' + badgeCls + '">' + zeroCount + ' \u0438\u0437 ' + months.length +
+            ' \u043c\u0435\u0441. \u0431\u0435\u0437 \u0442\u0435\u0441\u0442\u043e\u0432</span></div>' +
+            '<div class="inactive-months">' + cells + '</div></div>';
     }).join('');
 }
 

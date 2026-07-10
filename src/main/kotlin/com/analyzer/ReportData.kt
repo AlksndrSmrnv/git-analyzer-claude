@@ -14,5 +14,10 @@ data class ReportData(
      * не может восстановить его из generatedAt — new Date(год, 0, 1) даёт
      * полночь в поясе браузера, а не в поясе генерации.
      */
-    val yearStart: String
+    val yearStart: String,
+    /**
+     * Коллеги (e-mail или отображаемое имя из authorNames), которых сводка
+     * «Тестировщики без автотестов» не учитывает — например, уволившиеся.
+     */
+    val excludedTesters: List<String> = emptyList()
 )
