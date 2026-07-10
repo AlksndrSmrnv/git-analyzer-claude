@@ -157,6 +157,7 @@ ${css}
         <button class="period-btn" data-period="month">Последний месяц</button>
         <button class="period-btn" data-period="quarter">Квартал</button>
         <button class="period-btn" data-period="year">Последний год</button>
+        <button class="period-btn" data-period="ytd">С начала года</button>
         <button class="period-btn" data-period="custom">Конкретный месяц</button>
         <button class="period-btn" data-period="all">Всё время</button>
         <div class="custom-period is-hidden" id="customPeriod">
@@ -230,6 +231,22 @@ ${css}
             </tfoot>
         </table>
         <p class="no-data is-hidden" id="noData">Нет данных за выбранный период.</p>
+    </div>
+
+    <div class="summary-section">
+        <h2>Тестировщики без автотестов</h2>
+        <p class="section-hint">Месяцы выбранного периода, в которые автор не добавил ни одного автотеста.</p>
+        <table id="inactiveTable" class="is-hidden">
+            <thead>
+                <tr>
+                    <th>Тестировщик</th>
+                    <th>Месяцев без тестов</th>
+                    <th>Месяцы</th>
+                </tr>
+            </thead>
+            <tbody id="inactiveBody"></tbody>
+        </table>
+        <p class="no-data is-hidden" id="noInactiveData">За выбранный период у всех тестировщиков есть автотесты в каждом месяце.</p>
     </div>
 
     <div class="charts-section">
@@ -449,6 +466,11 @@ tbody tr:hover { background: #f8f9fb; }
     text-align: center;
     color: #888;
     font-style: italic;
+}
+.section-hint {
+    color: #888;
+    font-size: 13px;
+    margin-bottom: 12px;
 }
 .chart-container {
     background: #fff;
@@ -697,6 +719,7 @@ function updatePeriodButtonLabels() {
     ranges.month = fmtRange(s, now);
     s = new Date(now); s.setFullYear(now.getFullYear() - 1);
     ranges.year = fmtRange(s, now);
+    ranges.ytd = fmtRange(new Date(now.getFullYear(), 0, 1), now);
     document.querySelectorAll('.period-btn').forEach(btn => {
         const p = btn.dataset.period;
         if (ranges[p]) {
@@ -721,6 +744,10 @@ function getPeriodRange(periodType, cMonth, cYear, cQuarter) {
             break;
         case 'year':
             start = new Date(now); start.setFullYear(now.getFullYear() - 1); start.setHours(0, 0, 0, 0);
+            end = new Date(now);
+            break;
+        case 'ytd':
+            start = new Date(now.getFullYear(), 0, 1);
             end = new Date(now);
             break;
         case 'quarter': {
@@ -824,7 +851,7 @@ const MONTH_NAMES = [
 ];
 
 function formatLabel(key, periodType) {
-    if (periodType === 'year' || periodType === 'quarter' || periodType === 'all') {
+    if (periodType === 'year' || periodType === 'ytd' || periodType === 'quarter' || periodType === 'all') {
         const parts = key.split('-');
         return MONTH_NAMES[parseInt(parts[1]) - 1] + ' ' + parts[0];
     }
@@ -855,6 +882,77 @@ function renderTable(byAuthor) {
     }).join('');
 
     totalEl.innerHTML = '<strong>' + total + '</strong>';
+}
+
+function monthKeysInRange(start, end) {
+    const keys = [];
+    const d = new Date(start.getFullYear(), start.getMonth(), 1);
+    const last = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (d <= last) {
+        keys.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+        d.setMonth(d.getMonth() + 1);
+    }
+    return keys;
+}
+
+function getPeriodMonths(periodType, cMonth, cYear, cQuarter) {
+    const range = getPeriodRange(periodType, cMonth, cYear, cQuarter);
+    if (range === null) {
+        // 'all': от месяца самой ранней записи до месяца формирования отчёта.
+        if (DATA.length === 0) return [];
+        let earliest = parseDate(DATA[0].date);
+        DATA.forEach(r => {
+            const d = parseDate(r.date);
+            if (d < earliest) earliest = d;
+        });
+        return monthKeysInRange(earliest, NOW);
+    }
+    // Будущие месяцы (custom/quarter текущего года) не показываем.
+    const end = range.end < NOW ? range.end : NOW;
+    if (end < range.start) return [];
+    return monthKeysInRange(range.start, end);
+}
+
+function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
+    const table = document.getElementById('inactiveTable');
+    const body = document.getElementById('inactiveBody');
+    const noData = document.getElementById('noInactiveData');
+
+    // Системный фильтр намеренно не применяется: вопрос «написал ли автор
+    // хотя бы один автотест за месяц» не зависит от выбранной системы.
+    // Ростер тестировщиков — все авторы из данных за всю историю.
+    const months = getPeriodMonths(periodType, cMonth, cYear, cQuarter);
+    const testers = new Set(DATA.map(r => resolveAuthor(r.author)));
+
+    const activeMonthsByAuthor = {};
+    filterByPeriod(DATA, periodType, cMonth, cYear, cQuarter).forEach(r => {
+        const author = resolveAuthor(r.author);
+        if (!activeMonthsByAuthor[author]) activeMonthsByAuthor[author] = new Set();
+        activeMonthsByAuthor[author].add(r.date.slice(0, 7));
+    });
+
+    const rows = [...testers]
+        .map(author => {
+            const active = activeMonthsByAuthor[author] || new Set();
+            return { author: author, zeroMonths: months.filter(m => !active.has(m)) };
+        })
+        .filter(e => e.zeroMonths.length > 0)
+        .sort((a, b) => b.zeroMonths.length - a.zeroMonths.length || a.author.localeCompare(b.author));
+
+    if (months.length === 0 || rows.length === 0) {
+        setHidden(table, true);
+        setHidden(noData, false);
+        return;
+    }
+    setHidden(table, false);
+    setHidden(noData, true);
+
+    body.innerHTML = rows.map(e => {
+        const monthList = e.zeroMonths.map(m => formatLabel(m, 'all')).join(', ');
+        return '<tr><td>' + escapeHtml(e.author) + '</td><td>' +
+            e.zeroMonths.length + ' \u0438\u0437 ' + months.length + '</td><td>' +
+            escapeHtml(monthList) + '</td></tr>';
+    }).join('');
 }
 
 function renderAuthorChart(byAuthor) {
@@ -1236,6 +1334,7 @@ function updateReport(periodType) {
     const bySystem = aggregateBySystem(filtered);
 
     renderTable(byAuthor);
+    renderInactiveTesters(periodType, cMonth, effectiveYear, cQuarter);
     renderDetails(byAuthor);
     renderSystemsTable(bySystem);
 

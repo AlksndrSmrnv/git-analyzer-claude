@@ -57,6 +57,15 @@ class HtmlReportGeneratorTest {
             "report.js IIFE should be inlined")
         assertTrue(content.contains("(function init() {"), "init IIFE preserved")
 
+        // Период «С начала года» (YTD): кнопка в разметке и ветка в getPeriodRange
+        assertTrue(content.contains("data-period=\"ytd\""), "YTD period button should be present")
+        assertTrue(content.contains("case 'ytd':"), "getPeriodRange should handle 'ytd'")
+
+        // Сводка «Тестировщики без автотестов»: таблица и рендер-функция
+        assertTrue(content.contains("id=\"inactiveTable\""), "inactive testers table should be present")
+        assertTrue(content.contains("function renderInactiveTesters("),
+            "renderInactiveTesters should be inlined into report.js")
+
         // Chart.js встроен полноценным телом, а не только лицензионной шапкой:
         // Chart.js v4.4.0 UMD-бандл минифицирован, поэтому Chart.register/Chart.prototype
         // в нём не встречаются. Берём несколько характерных рантайм-маркеров, которые
