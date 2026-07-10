@@ -13,6 +13,7 @@
     <properties>
         <kotlin.version>2.1.0</kotlin.version>
         <junit.version>5.11.0</junit.version>
+        <graaljs.version>24.1.1</graaljs.version>
         <main.class>com.analyzer.MainKt</main.class>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.target>17</maven.compiler.target>
@@ -39,6 +40,21 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- GraalJS (community) — исполнение встроенного в report.html JavaScript
+             в поведенческих тестах (ReportJsBehaviorTest). Только test-scope. -->
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>polyglot</artifactId>
+            <version>${graaljs.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>js-community</artifactId>
+            <version>${graaljs.version}</version>
+            <type>pom</type>
             <scope>test</scope>
         </dependency>
     </dependencies>
