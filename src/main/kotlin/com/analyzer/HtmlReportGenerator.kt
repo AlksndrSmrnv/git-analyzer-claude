@@ -217,6 +217,44 @@ ${css}
         </div>
     </div>
 
+    <div class="summary-section" id="forecastSection">
+        <h2>Годовой прогноз и сравнение с прошлым годом</h2>
+        <p class="section-hint">Секция всегда считается по календарному году (с 1 января по дату формирования)
+            и не зависит от выбранного периода; фильтр по системе применяется. Прогноз — линейная экстраполяция
+            текущего темпа: тестов с начала года / прошедших дней × дней в году.</p>
+        <div class="velocity-section">
+            <div class="velocity-card">
+                <div class="velocity-label">С начала года</div>
+                <div class="velocity-value" id="fcYtd">—</div>
+            </div>
+            <div class="velocity-card">
+                <div class="velocity-label">Тот же период прошлого года</div>
+                <div class="velocity-value" id="fcPrev">—</div>
+            </div>
+            <div class="velocity-card">
+                <div class="velocity-label">Год к году</div>
+                <div class="velocity-value" id="fcDelta">—</div>
+            </div>
+            <div class="velocity-card">
+                <div class="velocity-label" id="fcProjectedLabel">Прогноз на 31 декабря</div>
+                <div class="velocity-value" id="fcProjected">—</div>
+            </div>
+        </div>
+        <table id="forecastTable">
+            <thead>
+                <tr>
+                    <th>Автор</th>
+                    <th>С начала года</th>
+                    <th>Тот же период прошлого года</th>
+                    <th>Δ год к году</th>
+                    <th>Прогноз на конец года</th>
+                </tr>
+            </thead>
+            <tbody id="forecastBody"></tbody>
+        </table>
+        <p class="no-data is-hidden" id="noForecastData">Нет данных за текущий и прошлый год.</p>
+    </div>
+
     <div class="summary-section">
         <h2>Сводка</h2>
         <table id="summaryTable">
@@ -245,6 +283,15 @@ ${css}
             с наибольшим числом пустых месяцев. Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
         <div id="inactiveList" class="is-hidden"></div>
         <p class="no-data is-hidden" id="noInactiveData">Нет данных за выбранный период.</p>
+    </div>
+
+    <div class="summary-section" id="batchingSection">
+        <h2>Паттерн равномерности</h2>
+        <p class="section-hint">Как тесты распределяются по дням внутри выбранного периода: активные дни,
+            медиана и максимум за день, доля тестов в топ-3 днях (индикатор «пачек»). Применяются оба фильтра —
+            период и система. Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
+        <div id="batchingList" class="is-hidden"></div>
+        <p class="no-data is-hidden" id="noBatchingData">Нет данных за выбранный период.</p>
     </div>
 
     <div class="charts-section">
@@ -707,7 +754,8 @@ tbody tr:hover { background: #f8f9fb; }
 .heatmap-level-8 { background: rgba(37,99,235,0.85); color: #fff; }
 .heatmap-level-9 { background: rgba(37,99,235,0.95); color: #fff; }
 .heatmap-cell:hover::after,
-.inactive-month:hover::after {
+.inactive-month:hover::after,
+.batch-bar:hover::after {
     content: attr(data-tip);
     position: absolute;
     bottom: 110%;
@@ -722,6 +770,56 @@ tbody tr:hover { background: #f8f9fb; }
     z-index: 10;
     pointer-events: none;
 }
+/* Дельты «год к году» вне velocity-карточек (таблица прогноза): базовые
+   .trend-up/.trend-down заскоуплены под .velocity-value и на ячейки таблицы
+   не действуют, поэтому дублируем только цвет глобально. */
+.trend-up { color: #16a34a; }
+.trend-down { color: #e11d48; }
+.batch-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-left: 4px solid #2563eb;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.batch-card-spike { border-left-color: #dc2626; }
+.batch-card-wave { border-left-color: #ea580c; }
+.batch-card-even { border-left-color: #16a34a; }
+.batch-card-nodata { border-left-color: #d0d5dd; }
+.batch-badge-even { background: #dcfce7; color: #16a34a; }
+.batch-badge-wave { background: #ffedd5; color: #ea580c; }
+.batch-badge-spike { background: #fee2e2; color: #dc2626; }
+.batch-badge-nodata { background: #f0f2f5; color: #666; }
+.batch-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 10px;
+}
+.batch-stat-label {
+    font-size: 11px;
+    color: #666;
+}
+.batch-stat-value {
+    font-size: 15px;
+    font-weight: 700;
+}
+.batch-spark {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 36px;
+}
+.batch-bar {
+    width: 6px;
+    min-height: 2px;
+    background: #2563eb;
+    border-radius: 2px 2px 0 0;
+    position: relative;
+}
+.batch-bar-zero { background: #e5e7eb; }
 """
     }
 
@@ -788,6 +886,37 @@ function parseDate(iso) { return new Date(iso); }
 // запись пройдёт фильтр одного месяца, а ключ получит соседнего.
 function monthKey(d) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+// Ключ дня YYYY-MM-DD — в часовом поясе браузера, по той же причине,
+// что и monthKey (срез строки r.date дал бы день в чужом UTC-offset).
+function dayKey(d) {
+    return monthKey(d) + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Сдвигает год в ISO-строке с offset (например, yearStart) на delta лет.
+// Единственный tz-корректный способ получить «1 января прошлого/следующего
+// года 00:00 в поясе генерации отчёта»: new Date(год, 0, 1) дал бы полночь
+// в поясе браузера (см. комментарий у YEAR_START).
+function shiftIsoYear(iso, delta) {
+    return new Date(iso.replace(/^\d{4}/, y => String(parseInt(y, 10) + delta)));
+}
+
+function fmtNum(x) {
+    return Number.isInteger(x) ? String(x) : x.toFixed(1);
+}
+
+// Единый формат дельты между периодами: — (нет данных), +∞ ▲ (рост с нуля),
+// иначе ±N% со стрелкой. Используется velocity-карточкой и секцией прогноза.
+function buildTrendHtml(total, prevTotal) {
+    if (prevTotal === 0 && total === 0) return '—';
+    if (prevTotal === 0) return '<span class="trend-up">+∞ ▲</span>';
+    const delta = total - prevTotal;
+    const pct = Math.round(delta / prevTotal * 100);
+    const sign = delta >= 0 ? '+' : '';
+    const cls = delta >= 0 ? 'trend-up' : 'trend-down';
+    const arrow = delta >= 0 ? '▲' : '▼';
+    return '<span class="' + cls + '">' + sign + pct + '% ' + arrow + '</span>';
 }
 
 function fmtDateDM(d, showYear) {
@@ -1080,6 +1209,161 @@ function renderInactiveTesters(periodType, cMonth, cYear, cQuarter) {
     }).join('');
 }
 
+// Пороги классификации стиля поставки тестов. На малом объёме (total < 5)
+// любая метрика концентрации вырождается, поэтому такие авторы получают
+// «мало данных». При достаточном объёме activeDays ≤ 3 даёт top3Share = 1 —
+// и честно классифицируется как «редкие крупные пачки».
+const BATCH_MIN_TOTAL = 5;        // меньше тестов — «мало данных»
+const BATCH_TOP3_SPIKE = 0.8;     // доля топ-3 дней: «редкие крупные пачки»
+const BATCH_TOP3_WAVE = 0.5;      // доля топ-3 дней: «волнами»
+const SPARK_MAX_BUCKETS = 60;     // больше недель — спарклайн переходит на месяцы
+
+// Чистая функция: по каждому автору (кроме EXCLUDED_TESTERS) — распределение
+// тестов по дням и классификация стиля поставки. Проверяется в node.
+function computeBatching(filtered) {
+    const excludedResolved = new Set([...EXCLUDED_TESTERS].map(resolveAuthor));
+    const byAuthor = {};
+    mergeByAuthor(filtered).forEach(r => {
+        if (excludedResolved.has(r.author)) return;
+        if (!byAuthor[r.author]) byAuthor[r.author] = {};
+        const key = dayKey(parseDate(r.date));
+        byAuthor[r.author][key] = (byAuthor[r.author][key] || 0) + 1;
+    });
+
+    return Object.entries(byAuthor).map(([author, days]) => {
+        const counts = Object.values(days).sort((a, b) => a - b);
+        const total = counts.reduce((s, c) => s + c, 0);
+        const activeDays = counts.length;
+        const maxPerDay = counts[activeDays - 1];
+        const mid = Math.floor(activeDays / 2);
+        const medianPerDay = activeDays % 2 === 1
+            ? counts[mid]
+            : (counts[mid - 1] + counts[mid]) / 2;
+        const top3Share = counts.slice(-3).reduce((s, c) => s + c, 0) / total;
+
+        let kind;
+        if (total < BATCH_MIN_TOTAL) kind = 'nodata';
+        else if (top3Share >= BATCH_TOP3_SPIKE) kind = 'spike';
+        else if (top3Share >= BATCH_TOP3_WAVE) kind = 'wave';
+        else kind = 'even';
+
+        return { author: author, total: total, activeDays: activeDays, maxPerDay: maxPerDay,
+            medianPerDay: medianPerDay, top3Share: top3Share, kind: kind };
+    }).sort((a, b) => {
+        // «Пачечники» сверху, «мало данных» в конце; при равенстве — по объёму.
+        const aLast = a.kind === 'nodata' ? 1 : 0;
+        const bLast = b.kind === 'nodata' ? 1 : 0;
+        return aLast - bLast || b.top3Share - a.top3Share || b.total - a.total ||
+            a.author.localeCompare(b.author);
+    });
+}
+
+// Корзины спарклайна: недельные (от понедельника), при диапазоне длиннее
+// SPARK_MAX_BUCKETS недель — месячные, чтобы «Всё время» не породило тысячи
+// баров. Ось непрерывная: корзины без тестов включены, провалы видны.
+function computeBatchBuckets(start, end, records) {
+    if (end < start) return [];
+    const mondayOf = src => {
+        const m = new Date(src);
+        m.setHours(0, 0, 0, 0);
+        m.setDate(m.getDate() - (m.getDay() || 7) + 1);
+        return m;
+    };
+    const firstWeek = mondayOf(start);
+    const weekCount = Math.floor((end.getTime() - firstWeek.getTime()) / (7 * 86400000)) + 1;
+    const useMonths = weekCount > SPARK_MAX_BUCKETS;
+
+    const keys = [];
+    const labels = {};
+    if (useMonths) {
+        monthKeysInRange(start, end).forEach(k => {
+            keys.push(k);
+            labels[k] = formatLabel(k, 'all');
+        });
+    } else {
+        const d = new Date(firstWeek);
+        while (d <= end) {
+            const k = dayKey(d);
+            keys.push(k);
+            labels[k] = fmtDateDM(d, true);
+            d.setDate(d.getDate() + 7);
+        }
+    }
+
+    const counts = {};
+    keys.forEach(k => { counts[k] = 0; });
+    records.forEach(r => {
+        const d = parseDate(r.date);
+        const k = useMonths ? monthKey(d) : dayKey(mondayOf(d));
+        if (counts[k] !== undefined) counts[k]++;
+    });
+    return keys.map(k => ({ key: k, label: labels[k], count: counts[k] }));
+}
+
+function renderBatching(filtered, periodType, cMonth, cYear, cQuarter) {
+    const list = document.getElementById('batchingList');
+    const noData = document.getElementById('noBatchingData');
+
+    const rows = computeBatching(filtered);
+    if (rows.length === 0) {
+        setHidden(list, true);
+        setHidden(noData, false);
+        return;
+    }
+    setHidden(list, false);
+    setHidden(noData, true);
+
+    let range = getPeriodRange(periodType, cMonth, cYear, cQuarter);
+    if (range === null) {
+        // 'all': общая ось от самой ранней записи до формирования отчёта —
+        // одинаковая для всех карточек, чтобы спарклайны были сравнимы.
+        let earliest = parseDate(filtered[0].date);
+        filtered.forEach(r => {
+            const d = parseDate(r.date);
+            if (d < earliest) earliest = d;
+        });
+        range = { start: earliest, end: NOW };
+    }
+    // Будущее (custom/quarter текущего года) не рисуем — как getPeriodMonths.
+    const sparkEnd = range.end < NOW ? range.end : NOW;
+
+    const KIND_LABELS = {
+        even: 'равномерно',
+        wave: 'волнами',
+        spike: 'редкие крупные пачки',
+        nodata: 'мало данных'
+    };
+    const merged = mergeByAuthor(filtered);
+
+    list.innerHTML = rows.map(e => {
+        const buckets = computeBatchBuckets(range.start, sparkEnd,
+            merged.filter(r => r.author === e.author));
+        const maxCount = Math.max(...buckets.map(b => b.count), 1);
+        const bars = buckets.map(b => {
+            const h = Math.round(b.count / maxCount * 100);
+            const cls = b.count === 0 ? ' batch-bar-zero' : '';
+            return '<div class="batch-bar' + cls + '" style="height:' + h + '%" data-tip="' +
+                escapeHtml(b.label + ': ' + b.count) + '"></div>';
+        }).join('');
+        const stats = [
+            ['Всего', e.total],
+            ['Активных дней', e.activeDays],
+            ['Медиана в день', fmtNum(e.medianPerDay)],
+            ['Максимум в день', e.maxPerDay],
+            ['Доля топ-3 дней', Math.round(e.top3Share * 100) + '%']
+        ].map(s =>
+            '<div><div class="batch-stat-label">' + s[0] + '</div>' +
+            '<div class="batch-stat-value">' + s[1] + '</div></div>'
+        ).join('');
+        return '<div class="batch-card batch-card-' + e.kind + '">' +
+            '<div class="inactive-card-header">' +
+            '<span class="inactive-name">' + escapeHtml(e.author) + '</span>' +
+            '<span class="inactive-badge batch-badge-' + e.kind + '">' + KIND_LABELS[e.kind] + '</span></div>' +
+            '<div class="batch-stats">' + stats + '</div>' +
+            '<div class="batch-spark">' + bars + '</div></div>';
+    }).join('');
+}
+
 function renderAuthorChart(byAuthor) {
     const ctx = document.getElementById('authorChart').getContext('2d');
     if (authorChart) authorChart.destroy();
@@ -1308,23 +1592,94 @@ function renderVelocity(filtered, periodType, cMonth, cYear, cQuarter, systemFil
     }
     const prevTotal = prevFiltered.length;
 
-    let trendHtml;
-    if (prevTotal === 0 && total === 0) {
-        trendHtml = '\u2014';
-    } else if (prevTotal === 0) {
-        trendHtml = '<span class="trend-up">+\u221e \u25b2</span>';
-    } else {
-        const delta = total - prevTotal;
-        const pct = Math.round(delta / prevTotal * 100);
-        const sign = delta >= 0 ? '+' : '';
-        const cls = delta >= 0 ? 'trend-up' : 'trend-down';
-        const arrow = delta >= 0 ? '\u25b2' : '\u25bc';
-        trendHtml = '<span class="' + cls + '">' + sign + pct + '% ' + arrow + '</span>';
-    }
+    const trendHtml = buildTrendHtml(total, prevTotal);
 
     document.getElementById('vcTotalValue').textContent = total;
     document.getElementById('vcWeeklyValue').textContent = perWeek;
     document.getElementById('vcTrendValue').innerHTML = trendHtml;
+}
+
+// Меньше двух недель с начала года — экстраполяция даёт мусор, прогноз скрываем.
+const FORECAST_MIN_DAYS = 14;
+
+// Чистая функция (не трогает DOM): годовой прогноз и сравнение с тем же
+// периодом прошлого года. Секция намеренно привязана к календарному году
+// и не зависит от выбранного периода; фильтр по системе применяется
+// к обоим годам. Вынесена отдельно, чтобы математику можно было
+// проверить в node без браузера.
+function computeForecast(records, now, yearStartIso, systemFilter) {
+    const curStart = new Date(yearStartIso);
+    const curEnd = now;
+    const prevStart = shiftIsoYear(yearStartIso, -1);
+    // Тот же день года в прошлом году. Квирк: 29 февраля setFullYear
+    // переносит на 1 марта невисокосного года — сознательно не чиним.
+    const prevEnd = new Date(now);
+    prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+
+    let source = records;
+    if (systemFilter && systemFilter !== 'all') {
+        source = records.filter(r => r.system === systemFilter);
+    }
+    const inRange = (r, start, end) => {
+        const d = parseDate(r.date);
+        return d >= start && d <= end;
+    };
+    const cur = source.filter(r => inRange(r, curStart, curEnd));
+    const prev = source.filter(r => inRange(r, prevStart, prevEnd));
+
+    const daysElapsed = Math.max((now.getTime() - curStart.getTime()) / 86400000, 1);
+    // Точная длина года (365/366) без ручной проверки високосности и DST.
+    const daysInYear = (shiftIsoYear(yearStartIso, 1).getTime() - curStart.getTime()) / 86400000;
+    const enoughData = daysElapsed >= FORECAST_MIN_DAYS;
+    const project = n => enoughData ? Math.round(n / daysElapsed * daysInYear) : null;
+
+    const byAuthor = {};
+    const add = (list, field) => {
+        list.forEach(r => {
+            const author = resolveAuthor(r.author);
+            if (!byAuthor[author]) byAuthor[author] = { author: author, cur: 0, prev: 0 };
+            byAuthor[author][field]++;
+        });
+    };
+    add(cur, 'cur');
+    add(prev, 'prev');
+    const authors = Object.values(byAuthor)
+        .map(a => ({ author: a.author, cur: a.cur, prev: a.prev, projected: project(a.cur) }))
+        .sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.author.localeCompare(b.author));
+
+    return {
+        ytd: cur.length,
+        prevYtd: prev.length,
+        projected: project(cur.length),
+        authors: authors
+    };
+}
+
+function renderForecast(systemFilter) {
+    const yearStartIso = REPORT_DATA.yearStart || YEAR_START.toISOString();
+    const f = computeForecast(DATA, NOW, yearStartIso, systemFilter);
+
+    document.getElementById('fcYtd').textContent = f.ytd;
+    document.getElementById('fcPrev').textContent = f.prevYtd;
+    document.getElementById('fcDelta').innerHTML = buildTrendHtml(f.ytd, f.prevYtd);
+    document.getElementById('fcProjected').textContent = f.projected === null ? '—' : f.projected;
+    document.getElementById('fcProjectedLabel').textContent = f.projected === null
+        ? 'Прогноз на 31 декабря (мало данных)'
+        : 'Прогноз на 31 декабря';
+
+    const table = document.getElementById('forecastTable');
+    const noData = document.getElementById('noForecastData');
+    if (f.authors.length === 0) {
+        setHidden(table, true);
+        setHidden(noData, false);
+        return;
+    }
+    setHidden(table, false);
+    setHidden(noData, true);
+    document.getElementById('forecastBody').innerHTML = f.authors.map(a =>
+        '<tr><td>' + escapeHtml(a.author) + '</td><td>' + a.cur + '</td><td>' + a.prev + '</td><td>' +
+        buildTrendHtml(a.cur, a.prev) + '</td><td>' + (a.projected === null ? '—' : a.projected) + '</td></tr>'
+    ).join('');
 }
 
 function renderHeatmap() {
@@ -1471,6 +1826,8 @@ function updateReport(periodType) {
     }
 
     renderVelocity(filtered, periodType, cMonth, effectiveYear, cQuarter, systemFilter);
+    renderForecast(systemFilter);
+    renderBatching(filtered, periodType, cMonth, effectiveYear, cQuarter);
 }
 
 // --- \u0418\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f ---

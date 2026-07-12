@@ -71,6 +71,16 @@ class HtmlReportGeneratorTest {
         assertTrue(content.contains("\"excludedTesters\":"),
             "excludedTesters should be embedded into REPORT_DATA")
 
+        // Секция «Годовой прогноз и сравнение с прошлым годом»: разметка и рендер-функция
+        assertTrue(content.contains("id=\"forecastSection\""), "forecast section should be present")
+        assertTrue(content.contains("function renderForecast("),
+            "renderForecast should be inlined into report.js")
+
+        // Секция «Паттерн равномерности»: контейнер карточек и рендер-функция
+        assertTrue(content.contains("id=\"batchingList\""), "batching list should be present")
+        assertTrue(content.contains("function renderBatching("),
+            "renderBatching should be inlined into report.js")
+
         // Chart.js встроен полноценным телом, а не только лицензионной шапкой:
         // Chart.js v4.4.0 UMD-бандл минифицирован, поэтому Chart.register/Chart.prototype
         // в нём не встречаются. Берём несколько характерных рантайм-маркеров, которые
