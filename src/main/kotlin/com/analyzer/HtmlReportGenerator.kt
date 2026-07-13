@@ -222,6 +222,86 @@ ${css}
         </div>
     </div>
 
+    <div class="summary-section">
+        <h2>Сводка</h2>
+        <table id="summaryTable">
+            <thead>
+                <tr>
+                    <th>Автор</th>
+                    <th>Количество тестов</th>
+                    <th>% от общего</th>
+                </tr>
+            </thead>
+            <tbody id="summaryBody"></tbody>
+            <tfoot>
+                <tr class="total-row">
+                    <td><strong>Всего</strong></td>
+                    <td id="totalCount"><strong>0</strong></td>
+                    <td><strong>100%</strong></td>
+                </tr>
+            </tfoot>
+        </table>
+        <p class="no-data is-hidden" id="noData">Нет данных за выбранный период.</p>
+    </div>
+
+    <div class="summary-section">
+        <h2>Активность тестировщиков по месяцам</h2>
+        <p class="section-hint">Красным — месяцы выбранного периода без единого автотеста, сверху — тестировщики
+            с наибольшим числом пустых месяцев. Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
+        <div id="inactiveList" class="is-hidden"></div>
+        <p class="no-data is-hidden" id="noInactiveData">Нет данных за выбранный период.</p>
+    </div>
+
+    <div class="systems-section">
+        <h2>Активность по системам и месяцам</h2>
+        <div class="heatmap-section">
+            <div id="heatmapContainer"></div>
+            <p class="no-data is-hidden" id="noHeatmapData">Нет данных по системам.</p>
+        </div>
+    </div>
+
+    <div class="charts-section">
+        <h2>Тесты по авторам</h2>
+        <div class="chart-container">
+            <canvas id="authorChart"></canvas>
+        </div>
+
+        <h2>Динамика по времени</h2>
+        <div class="chart-container chart-timeline">
+            <canvas id="timelineChart"></canvas>
+        </div>
+    </div>
+
+    <div class="systems-section">
+        <h2>Тесты по системам</h2>
+        <table id="systemsTable" class="is-hidden">
+            <thead>
+                <tr>
+                    <th>Система</th>
+                    <th>Количество тестов</th>
+                    <th>Авторы</th>
+                </tr>
+            </thead>
+            <tbody id="systemsBody"></tbody>
+        </table>
+        <p class="no-data is-hidden" id="noSystemData">Нет данных по системам за выбранный период.</p>
+
+        <h2>Количество тестов по системам</h2>
+        <div class="chart-container">
+            <canvas id="systemCountChart"></canvas>
+        </div>
+
+        <h2>Авторы × Системы</h2>
+        <div class="chart-container">
+            <canvas id="systemChart"></canvas>
+        </div>
+    </div>
+
+    <div class="details-section">
+        <h2>Подробности</h2>
+        <div id="detailsList"></div>
+    </div>
+
     <div class="summary-section" id="forecastSection">
         <h2>Годовой прогноз и сравнение с прошлым годом</h2>
         <p class="section-hint">Секция всегда считается по календарному году (с 1 января по дату формирования)
@@ -260,36 +340,6 @@ ${css}
         <p class="no-data is-hidden" id="noForecastData">Нет данных за текущий и прошлый год.</p>
     </div>
 
-    <div class="summary-section">
-        <h2>Сводка</h2>
-        <table id="summaryTable">
-            <thead>
-                <tr>
-                    <th>Автор</th>
-                    <th>Количество тестов</th>
-                    <th>% от общего</th>
-                </tr>
-            </thead>
-            <tbody id="summaryBody"></tbody>
-            <tfoot>
-                <tr class="total-row">
-                    <td><strong>Всего</strong></td>
-                    <td id="totalCount"><strong>0</strong></td>
-                    <td><strong>100%</strong></td>
-                </tr>
-            </tfoot>
-        </table>
-        <p class="no-data is-hidden" id="noData">Нет данных за выбранный период.</p>
-    </div>
-
-    <div class="summary-section">
-        <h2>Активность тестировщиков по месяцам</h2>
-        <p class="section-hint">Красным — месяцы выбранного периода без единого автотеста, сверху — тестировщики
-            с наибольшим числом пустых месяцев. Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
-        <div id="inactiveList" class="is-hidden"></div>
-        <p class="no-data is-hidden" id="noInactiveData">Нет данных за выбранный период.</p>
-    </div>
-
     <div class="summary-section" id="batchingSection">
         <h2>Паттерн равномерности</h2>
         <p class="section-hint">Как тесты распределяются по дням внутри выбранного периода: активные дни,
@@ -297,54 +347,6 @@ ${css}
             период и система. Коллеги из списка исключений (EXCLUDED_TESTERS) здесь не показываются.</p>
         <div id="batchingList" class="is-hidden"></div>
         <p class="no-data is-hidden" id="noBatchingData">Нет данных за выбранный период.</p>
-    </div>
-
-    <div class="charts-section">
-        <h2>Тесты по авторам</h2>
-        <div class="chart-container">
-            <canvas id="authorChart"></canvas>
-        </div>
-
-        <h2>Динамика по времени</h2>
-        <div class="chart-container chart-timeline">
-            <canvas id="timelineChart"></canvas>
-        </div>
-    </div>
-
-    <div class="systems-section">
-        <h2>Тесты по системам</h2>
-        <table id="systemsTable" class="is-hidden">
-            <thead>
-                <tr>
-                    <th>Система</th>
-                    <th>Количество тестов</th>
-                    <th>Авторы</th>
-                </tr>
-            </thead>
-            <tbody id="systemsBody"></tbody>
-        </table>
-        <p class="no-data is-hidden" id="noSystemData">Нет данных по системам за выбранный период.</p>
-
-        <h2>Количество тестов по системам</h2>
-        <div class="chart-container">
-            <canvas id="systemCountChart"></canvas>
-        </div>
-
-        <h2>Авторы × Системы</h2>
-        <div class="chart-container">
-            <canvas id="systemChart"></canvas>
-        </div>
-
-        <h2>Активность по системам и месяцам</h2>
-        <div class="heatmap-section">
-            <div id="heatmapContainer"></div>
-            <p class="no-data is-hidden" id="noHeatmapData">Нет данных по системам.</p>
-        </div>
-    </div>
-
-    <div class="details-section">
-        <h2>Подробности</h2>
-        <div id="detailsList"></div>
     </div>
 </div>
 
