@@ -3,8 +3,7 @@ package com.analyzer
 data class NewTestInfo(
     val functionName: String,
     val filePath: String,
-    val systemId: String? = null,
-    val date: String? = null
+    val systemId: String? = null
 )
 
 class TestParser {

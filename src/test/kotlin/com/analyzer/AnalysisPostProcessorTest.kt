@@ -3,7 +3,6 @@ package com.analyzer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.DisplayName
-import java.time.LocalDate
 
 class AnalysisPostProcessorTest {
 
@@ -65,73 +64,6 @@ class AnalysisPostProcessorTest {
     }
 
     @Test
-    @DisplayName("Period filter is applied to the deduplicated records")
-    fun periodFilterUsesDeduplicatedRecords() {
-        val records = listOf(
-            TestRecord(
-                authorEmail = "new@author.com",
-                functionName = "movedTest",
-                filePath = "src/test/kotlin/NewClassTest.kt",
-                date = "2026-03-20T10:00:00Z"
-            ),
-            TestRecord(
-                authorEmail = "old@author.com",
-                functionName = "movedTest",
-                filePath = "src/test/kotlin/OldClassTest.kt",
-                date = "2026-01-10T10:00:00Z"
-            )
-        )
-
-        val result = filterRecordsWithinDays(
-            deduplicateLatestTests(records),
-            days = 30,
-            currentDate = LocalDate.parse("2026-04-03")
-        )
-
-        assertEquals(1, result.size)
-        assertEquals("2026-03-20T10:00:00Z", result[0].date)
-        assertEquals("src/test/kotlin/NewClassTest.kt", result[0].filePath)
-    }
-
-    @Test
-    @DisplayName("Period filter keeps exactly N calendar days including today (no off-by-one)")
-    fun periodFilterExactWindow() {
-        // today = 2026-04-10, days = 7 → окно [2026-04-04 .. 2026-04-10] = 7 дней
-        val records = listOf(
-            TestRecord("a@x.com", "today", "f.kt", "2026-04-10T10:00:00Z"),
-            TestRecord("a@x.com", "startOfWindow", "f.kt", "2026-04-04T10:00:00Z"),
-            TestRecord("a@x.com", "dayBeforeWindow", "f.kt", "2026-04-03T10:00:00Z")
-        )
-
-        val result = filterRecordsWithinDays(
-            records,
-            days = 7,
-            currentDate = LocalDate.parse("2026-04-10")
-        )
-
-        assertEquals(2, result.size)
-        assertEquals(listOf("today", "startOfWindow"), result.map { it.functionName })
-    }
-
-    @Test
-    @DisplayName("days=1 keeps only today")
-    fun periodFilterSingleDay() {
-        val records = listOf(
-            TestRecord("a@x.com", "today", "f.kt", "2026-04-10T05:00:00Z"),
-            TestRecord("a@x.com", "yesterday", "f.kt", "2026-04-09T23:59:00Z")
-        )
-
-        val result = filterRecordsWithinDays(
-            records,
-            days = 1,
-            currentDate = LocalDate.parse("2026-04-10")
-        )
-
-        assertEquals(1, result.size)
-        assertEquals("today", result[0].functionName)
-    }
-
-    @Test
     @DisplayName("Records with different function names are preserved")
     fun keepsDifferentFunctionNames() {
         val records = listOf(
@@ -172,21 +104,4 @@ class AnalysisPostProcessorTest {
         assertEquals("CI001", result[0].systemId)
     }
 
-    @Test
-    @DisplayName("Builds console statistics from post-processed records")
-    fun buildsTestsByAuthorFromFinalRecords() {
-        val records = listOf(
-            TestRecord("qa1@author.com", "firstTest", "src/test/kotlin/OneTest.kt", "2026-04-02T10:00:00Z", "CI001"),
-            TestRecord("qa1@author.com", "secondTest", "src/test/kotlin/TwoTest.kt", "2026-04-01T10:00:00Z", null),
-            TestRecord("qa2@author.com", "thirdTest", "src/test/kotlin/ThreeTest.kt", "2026-03-31T10:00:00Z", "CI010")
-        )
-
-        val result = buildTestsByAuthor(records)
-
-        assertEquals(2, result.size)
-        assertEquals(listOf("firstTest", "secondTest"), result.getValue("qa1@author.com").map { it.functionName })
-        assertEquals(listOf("thirdTest"), result.getValue("qa2@author.com").map { it.functionName })
-        assertEquals("CI001", result.getValue("qa1@author.com")[0].systemId)
-        assertEquals(null, result.getValue("qa1@author.com")[1].systemId)
-    }
 }

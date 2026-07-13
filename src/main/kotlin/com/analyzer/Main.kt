@@ -13,16 +13,14 @@ private data class CommitResult(
 fun main() {
     try {
         val repoPath = AnalyzerConfig.REPO_PATH
-        val days = AnalyzerConfig.DAYS
-        val generateHtml = AnalyzerConfig.GENERATE_HTML
+        val outputDir = AnalyzerConfig.HTML_REPORT_DIR
         val threadCount = AnalyzerConfig.THREAD_COUNT
 
         val gitClient: GitOperations = GitClient(repoPath)
         runAnalysis(
             gitClient = gitClient,
             repoPath = repoPath,
-            days = days,
-            generateHtml = generateHtml,
+            outputDir = outputDir,
             threadCount = threadCount
         )
     } catch (e: Exception) {
@@ -42,8 +40,7 @@ fun main() {
 internal fun runAnalysis(
     gitClient: GitOperations,
     repoPath: String,
-    days: Int?,
-    generateHtml: Boolean,
+    outputDir: String,
     threadCount: Int
 ) {
     if (!gitClient.validateRepo()) {
@@ -55,12 +52,13 @@ internal fun runAnalysis(
 
     if (commits.isEmpty()) {
         Logger.info("No commits found.")
-        return
+    } else {
+        Logger.info("Found ${commits.size} commits to analyze (threads: $threadCount)...")
     }
-    Logger.info("Found ${commits.size} commits to analyze (threads: $threadCount)...")
 
-    // Определяем root-коммиты одной командой вместо проверки каждого
-    val rootCommits = gitClient.findRootCommits()
+    // Определяем root-коммиты одной командой вместо проверки каждого.
+    // Для пустой истории не обращаемся к отсутствующему HEAD.
+    val rootCommits = if (commits.isEmpty()) emptySet() else gitClient.findRootCommits()
 
     val allTestRecords = mutableListOf<TestRecord>()
     val processed = AtomicInteger(0)
@@ -121,29 +119,14 @@ internal fun runAnalysis(
 
     enrichSystemIds(allTestRecords, gitClient, parser)
     val dedupedRecords = deduplicateLatestTests(allTestRecords)
-    val consoleRecords = filterRecordsWithinDays(dedupedRecords, days)
-    val testsByAuthor = buildTestsByAuthor(consoleRecords)
-
-    println()
-    val periodLabel = if (days != null) "Last $days days" else "All time"
-    val printer = ReportPrinter()
-    printer.printReport(
-        testsByAuthor, periodLabel, repoPath,
+    val htmlGenerator = HtmlReportGenerator()
+    htmlGenerator.generate(
+        dedupedRecords, repoPath, outputDir,
+        systemNames = AnalyzerConfig.SYSTEM_NAMES,
         authorNames = AnalyzerConfig.AUTHOR_NAMES,
-        systemNames = AnalyzerConfig.SYSTEM_NAMES
+        excludedTesters = AnalyzerConfig.EXCLUDED_TESTERS
     )
-
-    if (generateHtml) {
-        val outputDir = AnalyzerConfig.HTML_REPORT_DIR
-        val htmlGenerator = HtmlReportGenerator()
-        htmlGenerator.generate(
-            dedupedRecords, repoPath, outputDir,
-            systemNames = AnalyzerConfig.SYSTEM_NAMES,
-            authorNames = AnalyzerConfig.AUTHOR_NAMES,
-            excludedTesters = AnalyzerConfig.EXCLUDED_TESTERS
-        )
-        Logger.info("HTML report generated: $outputDir/report.html")
-    }
+    Logger.info("HTML report generated: $outputDir/report.html")
 }
 
 /**
