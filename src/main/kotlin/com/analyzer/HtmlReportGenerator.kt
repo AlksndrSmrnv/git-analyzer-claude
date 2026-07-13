@@ -37,6 +37,10 @@ class HtmlReportGenerator {
         val yearStartIso = generatedAtZoned.toLocalDate().withDayOfYear(1)
             .atStartOfDay(zoneId)
             .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        // minusYears учитывает правила зоны (DST) и 29 февраля (даёт 28 февраля);
+        // JS-аналог через setFullYear() работал бы в поясе браузера и ошибался.
+        val prevYearEndIso = generatedAtZoned.minusYears(1)
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
         val reportData = ReportData(
             records = records,
@@ -44,6 +48,7 @@ class HtmlReportGenerator {
             authorNames = authorNames,
             generatedAt = generatedAtIso,
             yearStart = yearStartIso,
+            prevYearEnd = prevYearEndIso,
             excludedTesters = excludedTesters.sorted()
         )
         val reportJsonString = reportJson.encodeToString(ReportData.serializer(), reportData)
@@ -859,6 +864,18 @@ const YEAR_START = (() => {
     const parsed = new Date(REPORT_DATA.yearStart || '');
     return isNaN(parsed.getTime()) ? new Date(NOW.getFullYear(), 0, 1) : parsed;
 })();
+// Правая граница окна «тот же период прошлого года» (generatedAt минус год) —
+// вычислена в Kotlin в поясе генерации. Считать её здесь через setFullYear()
+// нельзя: setFullYear работает в поясе браузера — при несовпадающих DST-переходах
+// граница уезжает на час, а 29 февраля переносится на 1 марта.
+const PREV_YEAR_END = (() => {
+    const parsed = new Date(REPORT_DATA.prevYearEnd || '');
+    if (!isNaN(parsed.getTime())) return parsed;
+    // Fallback для данных без поля prevYearEnd — прежнее приближение.
+    const d = new Date(NOW);
+    d.setFullYear(d.getFullYear() - 1);
+    return d;
+})();
 
 function setHidden(element, hidden) {
     element.classList.toggle('is-hidden', hidden);
@@ -1333,11 +1350,13 @@ function renderBatching(filtered, periodType, cMonth, cYear, cQuarter) {
         spike: 'редкие крупные пачки',
         nodata: 'мало данных'
     };
-    const merged = mergeByAuthor(filtered);
+    // Записи группируются по автору один раз: фильтрация всего списка на
+    // каждого автора давала бы O(авторы × записи) на каждый рендер.
+    const recsByAuthor = aggregateByAuthor(filtered);
 
     list.innerHTML = rows.map(e => {
         const buckets = computeBatchBuckets(range.start, sparkEnd,
-            merged.filter(r => r.author === e.author));
+            recsByAuthor[e.author] || []);
         const maxCount = Math.max(...buckets.map(b => b.count), 1);
         const bars = buckets.map(b => {
             const h = Math.round(b.count / maxCount * 100);
@@ -1605,16 +1624,13 @@ const FORECAST_MIN_DAYS = 14;
 // Чистая функция (не трогает DOM): годовой прогноз и сравнение с тем же
 // периодом прошлого года. Секция намеренно привязана к календарному году
 // и не зависит от выбранного периода; фильтр по системе применяется
-// к обоим годам. Вынесена отдельно, чтобы математику можно было
-// проверить в node без браузера.
-function computeForecast(records, now, yearStartIso, systemFilter) {
+// к обоим годам. prevEnd (generatedAt минус год) приходит готовым из Kotlin —
+// см. комментарий у PREV_YEAR_END. Вынесена отдельно, чтобы математику
+// можно было проверить в node без браузера.
+function computeForecast(records, now, yearStartIso, prevEnd, systemFilter) {
     const curStart = new Date(yearStartIso);
     const curEnd = now;
     const prevStart = shiftIsoYear(yearStartIso, -1);
-    // Тот же день года в прошлом году. Квирк: 29 февраля setFullYear
-    // переносит на 1 марта невисокосного года — сознательно не чиним.
-    const prevEnd = new Date(now);
-    prevEnd.setFullYear(prevEnd.getFullYear() - 1);
 
     let source = records;
     if (systemFilter && systemFilter !== 'all') {
@@ -1657,7 +1673,7 @@ function computeForecast(records, now, yearStartIso, systemFilter) {
 
 function renderForecast(systemFilter) {
     const yearStartIso = REPORT_DATA.yearStart || YEAR_START.toISOString();
-    const f = computeForecast(DATA, NOW, yearStartIso, systemFilter);
+    const f = computeForecast(DATA, NOW, yearStartIso, PREV_YEAR_END, systemFilter);
 
     document.getElementById('fcYtd').textContent = f.ytd;
     document.getElementById('fcPrev').textContent = f.prevYtd;

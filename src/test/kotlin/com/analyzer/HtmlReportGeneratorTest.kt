@@ -62,6 +62,7 @@ class HtmlReportGeneratorTest {
         assertTrue(content.contains("data-period=\"ytd\""), "YTD period button should be present")
         assertTrue(content.contains("case 'ytd':"), "getPeriodRange should handle 'ytd'")
         assertTrue(content.contains("\"yearStart\":\""), "yearStart should be embedded into REPORT_DATA")
+        assertTrue(content.contains("\"prevYearEnd\":\""), "prevYearEnd should be embedded into REPORT_DATA")
 
         // Сводка «Активность тестировщиков по месяцам»: контейнер карточек, рендер-функция
         // и список исключённых во встроенных данных

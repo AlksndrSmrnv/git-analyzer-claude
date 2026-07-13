@@ -57,6 +57,8 @@ class ReportJsBehaviorTest {
             .atStartOfDay()
             .atOffset(generatedAtParsed.offset)
             .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val prevYearEnd = generatedAtParsed.minusYears(1)
+            .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         val outputDir = tempDir.resolve("report-${System.nanoTime()}").toString()
         generator.generate(
             records = records,
@@ -82,6 +84,7 @@ class ReportJsBehaviorTest {
         ctx.eval("js", scripts[1])
         ctx.eval("js", "window.REPORT_DATA.generatedAt = '$generatedAt';")
         ctx.eval("js", "window.REPORT_DATA.yearStart = '$yearStart';")
+        ctx.eval("js", "window.REPORT_DATA.prevYearEnd = '$prevYearEnd';")
         ctx.eval("js", scripts[2])
         context = ctx
         return ctx
@@ -394,6 +397,54 @@ class ReportJsBehaviorTest {
         assertEquals("2", ctx.textContent("fcYtd"), "forecast must respect the system filter")
         ctx.selectSystem("all")
         assertEquals("3", ctx.textContent("fcYtd"))
+    }
+
+    @Test
+    @DisplayName("Прогноз: граница прошлого года считается в поясе генерации, а не браузера (DST)")
+    fun forecastPrevYearBoundaryIsDstProof() {
+        // 01.11.2026 03:00 в Нью-Йорке DST уже закончился (EST, −05), а 01.11.2025
+        // в то же локальное время — ещё нет (EDT, −04): вычисление границы через
+        // setFullYear() в поясе браузера сместило бы её на час назад (07:00Z вместо
+        // 08:00Z) и потеряло бы запись 10:30+03:00 (07:30Z). Готовая граница из
+        // Kotlin от пояса браузера не зависит.
+        val ctx = loadReport(
+            records = listOf(
+                record("a@x.com", "2026-06-01T10:00:00+03:00", "cur"),
+                record("a@x.com", "2025-11-01T10:30:00+03:00", "prevIn"),
+                record("a@x.com", "2025-11-01T11:30:00+03:00", "prevOut")
+            ),
+            generatedAt = "2026-11-01T11:00:00+03:00",
+            browserZone = "America/New_York"
+        )
+
+        assertEquals("1", ctx.textContent("fcYtd"))
+        assertEquals("1", ctx.textContent("fcPrev"),
+            "10:30+03:00 is 30 minutes before the generation-zone boundary and must be included")
+    }
+
+    @Test
+    @DisplayName("Прогноз: 29 февраля окно прошлого года заканчивается 28 февраля, год — 366 дней")
+    fun forecastHandlesLeapDayGeneration() {
+        val records = (1..10).map {
+            record("a@x.com", "2024-01-%02dT10:00:00+03:00".format(it), "cur$it")
+        } + listOf(
+            record("a@x.com", "2023-02-28T11:00:00+03:00", "prevIn"),
+            // setFullYear() перенёс бы границу с 29.02.2024 на 01.03.2023 и
+            // ошибочно включил бы эту запись
+            record("a@x.com", "2023-03-01T10:00:00+03:00", "prevOut")
+        )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2024-02-29T12:00:00+03:00",
+            browserZone = "Europe/Moscow"
+        )
+
+        assertEquals("10", ctx.textContent("fcYtd"))
+        assertEquals("1", ctx.textContent("fcPrev"),
+            "prev-year window must end on Feb 28, not roll over to Mar 1")
+        // 59.5 прошедших дней и 366 дней в високосном году: round(10 / 59.5 * 366) = 62
+        // (при неверных 365 днях было бы 61)
+        assertEquals("62", ctx.textContent("fcProjected"))
     }
 
     @Test
