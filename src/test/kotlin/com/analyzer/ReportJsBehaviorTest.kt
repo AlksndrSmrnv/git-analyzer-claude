@@ -57,6 +57,8 @@ class ReportJsBehaviorTest {
             .atStartOfDay()
             .atOffset(generatedAtParsed.offset)
             .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val prevYearEnd = generatedAtParsed.minusYears(1)
+            .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         val outputDir = tempDir.resolve("report-${System.nanoTime()}").toString()
         generator.generate(
             records = records,
@@ -82,6 +84,7 @@ class ReportJsBehaviorTest {
         ctx.eval("js", scripts[1])
         ctx.eval("js", "window.REPORT_DATA.generatedAt = '$generatedAt';")
         ctx.eval("js", "window.REPORT_DATA.yearStart = '$yearStart';")
+        ctx.eval("js", "window.REPORT_DATA.prevYearEnd = '$prevYearEnd';")
         ctx.eval("js", scripts[2])
         context = ctx
         return ctx
@@ -93,6 +96,15 @@ class ReportJsBehaviorTest {
         js("document.getElementById('$id').innerHTML").asString()
     private fun Context.isHidden(id: String): Boolean =
         js("document.getElementById('$id').hidden").asBoolean()
+
+    // textContent может быть числом (renderVelocity/renderForecast присваивают
+    // числа, браузер сам приводит к строке) — приводим явно на стороне JS.
+    private fun Context.textContent(id: String): String =
+        js("String(document.getElementById('$id').textContent)").asString()
+
+    private fun Context.selectSystem(system: String) =
+        js("document.getElementById('systemFilter').value = '$system'; " +
+            "document.getElementById('systemFilter').listeners.change();")
 
     @Test
     @DisplayName("YTD: период начинается 1 января года формирования отчёта")
@@ -308,6 +320,252 @@ class ReportJsBehaviorTest {
         assertFalse(ctx.isHidden("noData"))
         assertTrue(ctx.isHidden("inactiveList"))
         assertFalse(ctx.isHidden("noInactiveData"))
+        assertTrue(ctx.isHidden("forecastTable"))
+        assertFalse(ctx.isHidden("noForecastData"))
+        assertTrue(ctx.isHidden("batchingList"))
+        assertFalse(ctx.isHidden("noBatchingData"))
+    }
+
+    @Test
+    @DisplayName("Прогноз: YTD, тот же период прошлого года, дельта и экстраполяция")
+    fun forecastComputesYtdYoYAndProjection() {
+        val records = listOf(
+            // a: 4 теста в этом году, 2 в окне прошлого года
+            record("a@x.com", "2026-02-01T10:00:00+03:00", "aFeb"),
+            record("a@x.com", "2026-03-01T10:00:00+03:00", "aMar"),
+            record("a@x.com", "2026-04-01T10:00:00+03:00", "aApr"),
+            record("a@x.com", "2026-05-01T10:00:00+03:00", "aMay"),
+            record("a@x.com", "2025-03-10T10:00:00+03:00", "aPrevMar"),
+            // Границы окна прошлого года (сам момент — 2025-07-10T12:00+03:00):
+            // 11:00 входит, 13:00 — уже нет
+            record("a@x.com", "2025-07-10T11:00:00+03:00", "aPrevBoundaryIn"),
+            record("a@x.com", "2025-07-10T13:00:00+03:00", "aPrevBoundaryOut"),
+            // old: только прошлый год; new: только этот год
+            record("old@x.com", "2025-05-05T10:00:00+03:00", "oldPrev"),
+            record("new@x.com", "2026-06-15T10:00:00+03:00", "newCur")
+        )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow"
+        )
+
+        // Карточки: 5 YTD (4 у a + 1 у new), 3 за тот же период прошлого года
+        // (2 у a + 1 у old), дельта +67%, прогноз round(5 / 190.5 * 365) = 10.
+        assertEquals("5", ctx.textContent("fcYtd"))
+        assertEquals("3", ctx.textContent("fcPrev"))
+        assertTrue(ctx.innerHtml("fcDelta").contains("+67%"), "got: ${ctx.innerHtml("fcDelta")}")
+        assertEquals("10", ctx.textContent("fcProjected"))
+        assertEquals("Прогноз на 31 декабря", ctx.textContent("fcProjectedLabel"))
+
+        // Таблица по авторам: сортировка по YTD, -100% у ушедшего, +∞ у новичка,
+        // прогноз a = round(4 / 190.5 * 365) = 8
+        val body = ctx.innerHtml("forecastBody")
+        assertFalse(ctx.isHidden("forecastTable"))
+        assertTrue(body.indexOf("a@x.com") < body.indexOf("new@x.com"), "got: $body")
+        assertTrue(body.indexOf("new@x.com") < body.indexOf("old@x.com"), "got: $body")
+        val rowA = body.substringAfter("a@x.com").substringBefore("</tr>")
+        assertTrue(rowA.contains("<td>4</td><td>2</td>") && rowA.contains("+100%") && rowA.contains("<td>8</td>"),
+            "got: $rowA")
+        val rowOld = body.substringAfter("old@x.com").substringBefore("</tr>")
+        assertTrue(rowOld.contains("<td>0</td><td>1</td>") && rowOld.contains("-100%"), "got: $rowOld")
+        val rowNew = body.substringAfter("new@x.com").substringBefore("</tr>")
+        assertTrue(rowNew.contains("+∞"), "got: $rowNew")
+    }
+
+    @Test
+    @DisplayName("Прогноз: не зависит от фильтра периода, но уважает фильтр по системе")
+    fun forecastIgnoresPeriodButRespectsSystemFilter() {
+        val ctx = loadReport(
+            records = listOf(
+                record("a@x.com", "2026-02-01T10:00:00+03:00", "t1", system = "CI001"),
+                record("a@x.com", "2026-03-01T10:00:00+03:00", "t2", system = "CI001"),
+                record("a@x.com", "2026-04-01T10:00:00+03:00", "t3", system = "CI002")
+            ),
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow"
+        )
+
+        // init() рендерит с периодом «неделя» — прогноз всё равно за весь YTD
+        assertEquals("3", ctx.textContent("fcYtd"))
+        ctx.clickPeriod("month")
+        assertEquals("3", ctx.textContent("fcYtd"), "forecast must not react to period filter")
+        ctx.clickPeriod("ytd")
+        assertEquals("3", ctx.textContent("fcYtd"))
+
+        ctx.selectSystem("CI001")
+        assertEquals("2", ctx.textContent("fcYtd"), "forecast must respect the system filter")
+        ctx.selectSystem("all")
+        assertEquals("3", ctx.textContent("fcYtd"))
+    }
+
+    @Test
+    @DisplayName("Прогноз: граница прошлого года считается в поясе генерации, а не браузера (DST)")
+    fun forecastPrevYearBoundaryIsDstProof() {
+        // 01.11.2026 03:00 в Нью-Йорке DST уже закончился (EST, −05), а 01.11.2025
+        // в то же локальное время — ещё нет (EDT, −04): вычисление границы через
+        // setFullYear() в поясе браузера сместило бы её на час назад (07:00Z вместо
+        // 08:00Z) и потеряло бы запись 10:30+03:00 (07:30Z). Готовая граница из
+        // Kotlin от пояса браузера не зависит.
+        val ctx = loadReport(
+            records = listOf(
+                record("a@x.com", "2026-06-01T10:00:00+03:00", "cur"),
+                record("a@x.com", "2025-11-01T10:30:00+03:00", "prevIn"),
+                record("a@x.com", "2025-11-01T11:30:00+03:00", "prevOut")
+            ),
+            generatedAt = "2026-11-01T11:00:00+03:00",
+            browserZone = "America/New_York"
+        )
+
+        assertEquals("1", ctx.textContent("fcYtd"))
+        assertEquals("1", ctx.textContent("fcPrev"),
+            "10:30+03:00 is 30 minutes before the generation-zone boundary and must be included")
+    }
+
+    @Test
+    @DisplayName("Прогноз: 29 февраля окно прошлого года заканчивается 28 февраля, год — 366 дней")
+    fun forecastHandlesLeapDayGeneration() {
+        val records = (1..10).map {
+            record("a@x.com", "2024-01-%02dT10:00:00+03:00".format(it), "cur$it")
+        } + listOf(
+            record("a@x.com", "2023-02-28T11:00:00+03:00", "prevIn"),
+            // setFullYear() перенёс бы границу с 29.02.2024 на 01.03.2023 и
+            // ошибочно включил бы эту запись
+            record("a@x.com", "2023-03-01T10:00:00+03:00", "prevOut")
+        )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2024-02-29T12:00:00+03:00",
+            browserZone = "Europe/Moscow"
+        )
+
+        assertEquals("10", ctx.textContent("fcYtd"))
+        assertEquals("1", ctx.textContent("fcPrev"),
+            "prev-year window must end on Feb 28, not roll over to Mar 1")
+        // 59.5 прошедших дней и 366 дней в високосном году: round(10 / 59.5 * 366) = 62
+        // (при неверных 365 днях было бы 61)
+        assertEquals("62", ctx.textContent("fcProjected"))
+    }
+
+    @Test
+    @DisplayName("Прогноз: в первые дни января экстраполяция скрывается как ненадёжная")
+    fun forecastSuppressesProjectionInEarlyJanuary() {
+        val ctx = loadReport(
+            records = listOf(
+                record("a@x.com", "2026-01-02T10:00:00+03:00", "jan2"),
+                record("a@x.com", "2026-01-03T10:00:00+03:00", "jan3")
+            ),
+            generatedAt = "2026-01-05T12:00:00+03:00",
+            browserZone = "Europe/Moscow"
+        )
+
+        // 4.5 прошедших дня < 14 — прогноз «—», метка с пояснением
+        assertEquals("2", ctx.textContent("fcYtd"))
+        assertEquals("—", ctx.textContent("fcProjected"))
+        assertTrue(ctx.textContent("fcProjectedLabel").contains("мало данных"))
+        // Рост с нуля относительно прошлого года
+        assertTrue(ctx.innerHtml("fcDelta").contains("+∞"))
+    }
+
+    @Test
+    @DisplayName("Батчинг: классификация по доле топ-3 дней, сортировка и EXCLUDED_TESTERS")
+    fun batchingClassifiesDeliveryPatterns() {
+        val records =
+            // spike: 10 тестов в один день
+            (1..10).map { record("spike@x.com", "2026-03-05T10:%02d:00+03:00".format(it), "spike$it") } +
+            // even: 10 тестов по одному в день
+            (1..10).map { record("even@x.com", "2026-05-%02dT10:00:00+03:00".format(it), "even$it") } +
+            // wave: дни [3,1,1,1,1,1] → топ-3 = 5/8 = 62.5%
+            listOf(
+                record("wave@x.com", "2026-04-01T10:00:00+03:00", "wave1"),
+                record("wave@x.com", "2026-04-01T11:00:00+03:00", "wave2"),
+                record("wave@x.com", "2026-04-01T12:00:00+03:00", "wave3"),
+                record("wave@x.com", "2026-04-05T10:00:00+03:00", "wave4"),
+                record("wave@x.com", "2026-04-08T10:00:00+03:00", "wave5"),
+                record("wave@x.com", "2026-04-12T10:00:00+03:00", "wave6"),
+                record("wave@x.com", "2026-04-15T10:00:00+03:00", "wave7"),
+                record("wave@x.com", "2026-04-20T10:00:00+03:00", "wave8"),
+                // tiny: меньше 5 тестов — «мало данных»
+                record("tiny@x.com", "2026-02-01T10:00:00+03:00", "tiny1"),
+                record("tiny@x.com", "2026-02-15T10:00:00+03:00", "tiny2"),
+                // excluded: скрыт из батчинга, но виден в прогнозе
+                record("ex@x.com", "2026-06-01T10:00:00+03:00", "ex1"),
+                record("ex@x.com", "2026-06-01T11:00:00+03:00", "ex2"),
+                record("ex@x.com", "2026-06-01T12:00:00+03:00", "ex3"),
+                record("ex@x.com", "2026-06-01T13:00:00+03:00", "ex4"),
+                record("ex@x.com", "2026-06-01T14:00:00+03:00", "ex5")
+            )
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow",
+            excludedTesters = setOf("ex@x.com")
+        )
+
+        ctx.clickPeriod("ytd")
+        val html = ctx.innerHtml("batchingList")
+        assertFalse(ctx.isHidden("batchingList"))
+
+        val cardSpike = html.substringAfter("spike@x.com").substringBefore("batch-card")
+        assertTrue(cardSpike.contains("редкие крупные пачки"), "got: $cardSpike")
+        assertTrue(cardSpike.contains("100%"), "top-3 share of a one-day author must be 100%, got: $cardSpike")
+        val cardWave = html.substringAfter("wave@x.com").substringBefore("batch-card")
+        assertTrue(cardWave.contains("волнами"), "got: $cardWave")
+        assertTrue(cardWave.contains("63%"), "top-3 share 5/8 must round to 63%, got: $cardWave")
+        val cardEven = html.substringAfter("even@x.com").substringBefore("batch-card")
+        assertTrue(cardEven.contains("равномерно"), "got: $cardEven")
+        val cardTiny = html.substringAfter("tiny@x.com")
+        assertTrue(cardTiny.contains("мало данных"), "got: $cardTiny")
+
+        // Сортировка: пачечники сверху по доле топ-3, «мало данных» в конце
+        assertTrue(
+            html.indexOf("spike@x.com") < html.indexOf("wave@x.com") &&
+                html.indexOf("wave@x.com") < html.indexOf("even@x.com") &&
+                html.indexOf("even@x.com") < html.indexOf("tiny@x.com"),
+            "cards must be sorted spike > wave > even, no-data last, got: $html"
+        )
+
+        // Спарклайн: недельные бары с провалами (YTD ≈ 27 недель < 60)
+        assertTrue(html.contains("batch-spark") && html.contains("batch-bar"), "got: $html")
+        assertTrue(html.contains("batch-bar-zero"), "gaps must be visible as zero bars, got: $html")
+
+        // Исключённый скрыт из батчинга, но остаётся в таблице прогноза
+        assertFalse(html.contains("ex@x.com"), "excluded tester must be hidden from batching, got: $html")
+        assertTrue(ctx.innerHtml("forecastBody").contains("ex@x.com"),
+            "forecast deliberately includes excluded testers")
+    }
+
+    @Test
+    @DisplayName("Батчинг: уважает фильтры периода и системы")
+    fun batchingRespectsPeriodAndSystemFilters() {
+        val records =
+            // 6 тестов одним днём в марте (CI001) + 7 тестов по одному в день в июне (CI002)
+            (1..6).map { record("a@x.com", "2026-03-05T10:0$it:00+03:00", "mar$it", system = "CI001") } +
+            (1..7).map { record("a@x.com", "2026-06-%02dT10:00:00+03:00".format(it), "jun$it", system = "CI002") }
+        val ctx = loadReport(
+            records = records,
+            generatedAt = "2026-07-10T12:00:00+03:00",
+            browserZone = "Europe/Moscow"
+        )
+
+        // Весь YTD: дни [6,1,1,1,1,1,1,1] → топ-3 = 8/13 ≈ 0.62 → «волнами»
+        ctx.clickPeriod("ytd")
+        assertTrue(ctx.innerHtml("batchingList").contains("волнами"),
+            "got: ${ctx.innerHtml("batchingList")}")
+
+        // Только март: 6 тестов одним днём → «редкие крупные пачки»
+        ctx.js("document.getElementById('customMonth').value = '3';")
+        ctx.js("document.getElementById('customYear').value = '2026';")
+        ctx.clickPeriod("custom")
+        ctx.js("document.getElementById('applyCustom').click();")
+        assertTrue(ctx.innerHtml("batchingList").contains("редкие крупные пачки"),
+            "period filter must narrow batching to March, got: ${ctx.innerHtml("batchingList")}")
+
+        // YTD + фильтр по системе CI002: 7 дней по одному тесту → «равномерно»
+        ctx.clickPeriod("ytd")
+        ctx.selectSystem("CI002")
+        assertTrue(ctx.innerHtml("batchingList").contains("равномерно"),
+            "system filter must leave only the even June deliveries, got: ${ctx.innerHtml("batchingList")}")
     }
 
     @Test

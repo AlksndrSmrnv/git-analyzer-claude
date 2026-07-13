@@ -202,6 +202,32 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Apostrophes and comment markers inside backtick names do not break parsing")
+    fun handlesApostropheAndCommentMarkersInsideBacktickNames() {
+        // Апостроф внутри backtick-имени — не начало char literal, а // внутри
+        // него — не комментарий: остаток строки (включая скобку после имени)
+        // должен остаться видимым парсеру. Строковый литерал после имени при
+        // этом по-прежнему затирается — @Test внутри него не даёт фантома.
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,8 @@
++    @Test
++    fun `doesn't fail`() {
++        val s = "@Test fun phantom() {"
++    }
++
++    @Test
++    fun `weird // not a comment`() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("`doesn't fail`", results[0].functionName)
+        assertEquals("`weird // not a comment`", results[1].functionName)
+    }
+
+    @Test
     @DisplayName("Returns empty for diff with no test additions")
     fun returnsEmptyForNoTests() {
         val diff = """
@@ -1058,6 +1084,25 @@ class MyTest {
     }
 
     @Test
+    @DisplayName("extractSystemMapping: apostrophe inside a backtick name keeps the test visible")
+    fun extractSystemMappingApostropheInsideBacktickName() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun `doesn't fail`() {}
+
+    @Test
+    fun regularTest() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("CI01337", mapping["`doesn't fail`"])
+        assertEquals("CI01337", mapping["regularTest"])
+    }
+
+    @Test
     @DisplayName("extractSystemMapping: blank content returns empty map")
     fun extractSystemMappingBlankContent() {
         val mapping = parser.extractSystemMapping("")
@@ -1230,5 +1275,262 @@ class New_Tests : Tests {
         val results = parser.findNewTests(diff)
         assertEquals(1, results.size)
         assertEquals("CI003", results[0].systemId)
+    }
+
+    @Test
+    @DisplayName("Moving a test between existing files is not counted as a new test")
+    fun doesNotCountTestMovedBetweenFiles() {
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/OldTest.kt
+--- a/src/test/kotlin/OldTest.kt
++++ b/src/test/kotlin/OldTest.kt
+@@ -1,4 +1,0 @@
+-    @Test
+-    fun movedTest() {
+-    }
+diff --git a/src/test/kotlin/NewTest.kt b/src/test/kotlin/NewTest.kt
+--- a/src/test/kotlin/NewTest.kt
++++ b/src/test/kotlin/NewTest.kt
+@@ -1,0 +1,4 @@
++    @Test
++    fun movedTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Moving a test from a deleted file to a new file is not counted as new")
+    fun doesNotCountTestMovedFromDeletedFile() {
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/OldTest.kt
+deleted file mode 100644
+--- a/src/test/kotlin/OldTest.kt
++++ /dev/null
+@@ -1,4 +0,0 @@
+-    @Test
+-    fun movedTest() {
+-    }
+diff --git a/src/test/kotlin/NewTest.kt b/src/test/kotlin/NewTest.kt
+new file mode 100644
+--- /dev/null
++++ b/src/test/kotlin/NewTest.kt
+@@ -0,0 +1,4 @@
++    @Test
++    fun movedTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Moving one test while adding another returns only the new test")
+    fun countsOnlyNewTestAlongsideMove() {
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/OldTest.kt
+--- a/src/test/kotlin/OldTest.kt
++++ b/src/test/kotlin/OldTest.kt
+@@ -1,4 +1,0 @@
+-    @Test
+-    fun movedTest() {
+-    }
+diff --git a/src/test/kotlin/NewTest.kt b/src/test/kotlin/NewTest.kt
+--- a/src/test/kotlin/NewTest.kt
++++ b/src/test/kotlin/NewTest.kt
+@@ -1,0 +1,8 @@
++    @Test
++    fun movedTest() {
++    }
++
++    @Test
++    fun genuinelyNewTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(listOf("genuinelyNewTest"), results.map { it.functionName })
+    }
+
+    @Test
+    @DisplayName("One removal suppresses only one of two same-name additions")
+    fun matchesMovedTestsAsMultiset() {
+        val diff = """
+diff --git a/src/test/kotlin/OldTest.kt b/src/test/kotlin/OldTest.kt
+--- a/src/test/kotlin/OldTest.kt
++++ b/src/test/kotlin/OldTest.kt
+@@ -1,4 +1,0 @@
+-    @Test
+-    fun sameNameTest() {
+-    }
+diff --git a/src/test/kotlin/FirstNewTest.kt b/src/test/kotlin/FirstNewTest.kt
+--- a/src/test/kotlin/FirstNewTest.kt
++++ b/src/test/kotlin/FirstNewTest.kt
+@@ -1,0 +1,4 @@
++    @Test
++    fun sameNameTest() {
++    }
+diff --git a/src/test/kotlin/SecondNewTest.kt b/src/test/kotlin/SecondNewTest.kt
+--- a/src/test/kotlin/SecondNewTest.kt
++++ b/src/test/kotlin/SecondNewTest.kt
+@@ -1,0 +1,4 @@
++    @Test
++    fun sameNameTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(1, results.size)
+        assertEquals("sameNameTest", results.single().functionName)
+    }
+
+    @Test
+    @DisplayName("Test-looking code inside a raw string is ignored")
+    fun ignoresTestCodeInsideRawString() {
+        val diff = listOf(
+            "+++ b/src/test/kotlin/Fixture.kt",
+            "@@ -0,0 +1,5 @@",
+            "+val fixture = \"\"\"",
+            "+@Test",
+            "+fun fakeTest() {}",
+            "+\"\"\""
+        ).joinToString("\n")
+
+        val results = parser.findNewTests(diff)
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Test-looking code inside nested block comments is ignored")
+    fun ignoresTestCodeInsideNestedBlockComments() {
+        val diff = """
++++ b/src/test/kotlin/Fixture.kt
+@@ -0,0 +1,8 @@
++/*
++    /* nested comment */
++    @Test
++    fun fakeTest() {}
++*/
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    @DisplayName("A line comment between @Test and fun does not hide the real test")
+    fun keepsPendingAnnotationAcrossLineComment() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,5 @@
++    @Test
++    // Regression for a production incident
++    fun realTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(listOf("realTest"), results.map { it.functionName })
+    }
+
+    @Test
+    @DisplayName("An unchanged comment between added @Test and fun keeps the annotation pending")
+    fun keepsPendingAnnotationAcrossContextComment() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -1,1 +1,3 @@
++    @Test
+     // Existing explanation
++    fun realTest() {}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(listOf("realTest"), results.map { it.functionName })
+    }
+
+    @Test
+    @DisplayName("Braces in strings, chars and comments do not close the class scope")
+    fun ignoresNonCodeBracesForClassSystem() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,10 @@
++@System("CI001")
++class MyTest {
++    val regular = "}" // }
++    val character = '}'
++    /* } */
++    @Test
++    fun realTest() {
++    }
++}
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(1, results.size)
+        assertEquals("CI001", results.single().systemId)
+    }
+
+    @Test
+    @DisplayName("A removed raw-string fixture does not cancel a real same-name addition")
+    fun removedFixtureDoesNotCancelRealAddition() {
+        val diff = listOf(
+            "diff --git a/src/test/kotlin/Fixture.kt b/src/test/kotlin/Fixture.kt",
+            "--- a/src/test/kotlin/Fixture.kt",
+            "+++ b/src/test/kotlin/Fixture.kt",
+            "@@ -1,4 +1,0 @@",
+            "-val fixture = \"\"\"",
+            "-@Test",
+            "-fun realTest() {}",
+            "-\"\"\"",
+            "diff --git a/src/test/kotlin/RealTest.kt b/src/test/kotlin/RealTest.kt",
+            "--- a/src/test/kotlin/RealTest.kt",
+            "+++ b/src/test/kotlin/RealTest.kt",
+            "@@ -1,0 +1,3 @@",
+            "+@Test",
+            "+fun realTest() {}"
+        ).joinToString("\n")
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(listOf("realTest"), results.map { it.functionName })
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping ignores classes and tests inside strings and comments")
+    fun extractSystemMappingIgnoresNonCode() {
+        val fileContent = listOf(
+            "val fixture = \"\"\"",
+            "@System(\"FAKE_RAW\")",
+            "class RawFixture {",
+            "    @Test fun rawFake() {}",
+            "}",
+            "\"\"\"",
+            "/*",
+            "@System(\"FAKE_COMMENT\")",
+            "class CommentFixture {",
+            "    @Test fun commentFake() {}",
+            "}",
+            "*/",
+            "@System(\"CI001\")",
+            "class RealTest {",
+            "    @Test fun realTest() {}",
+            "}"
+        ).joinToString("\n")
+
+        val mapping = parser.extractSystemMapping(fileContent)
+
+        assertEquals(mapOf("realTest" to "CI001"), mapping)
     }
 }

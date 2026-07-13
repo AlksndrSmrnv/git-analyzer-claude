@@ -11,28 +11,27 @@ class TestParser {
 
     private val testAnnotations = setOf("@Test", "@ParameterizedTest", "@RepeatedTest")
     private val systemAnnotationRegex = Regex("""@System\("([^"]+)"\)""")
+    private val systemAnnotationTokenRegex = Regex("""@System\s*\(""")
     private val classDeclarationRegex = Regex("""\bclass\s+\w+|\bobject\s+\w+""")
 
     private data class ClassScope(val depth: Int, val systemId: String?)
+    private data class RemovedTestCandidate(val functionName: String, val filePath: String?)
+    private data class TestLocationKey(val functionName: String, val filePath: String)
 
     /**
      * Находит по-настоящему НОВЫЕ тесты в diff-выводе git.
      *
-     * Алгоритм: собираем имена тестов из добавленных строк (+)
-     * и имена тестов из удалённых строк (-). Новыми считаются только те
-     * добавленные тесты, имя которых не встречается среди удалённых.
-     * Это исключает переименования и рефакторинги.
-     *
-     * Сопоставление ведётся по имени функции, а не по счётчику,
-     * что корректно работает при полном контексте файла (-U999999),
-     * когда все изменения оказываются в одном hunk'е.
+     * Алгоритм: собираем тесты из добавленных и удалённых строк всего commit diff.
+     * Затем сопоставляем их как мультимножества: сначала по имени и файлу,
+     * затем по имени между файлами. Так изменения и переносы не считаются
+     * новыми тестами, а одно удаление подавляет ровно одно добавление.
      *
      * Также извлекает @System("...") аннотацию — на уровне класса (наследуется
      * всеми тестами) или на уровне конкретного теста (переопределяет класс).
      */
     fun findNewTests(diffOutput: String): List<NewTestInfo> {
-        val results = mutableListOf<NewTestInfo>()
         var currentFile: String? = null
+        var currentOldFile: String? = null
 
         // Состояние для добавленных строк (+)
         var addedPendingAnnotation = false
@@ -40,7 +39,7 @@ class TestParser {
 
         // Состояние для удалённых строк (-)
         var removedPendingAnnotation = false
-        val removedTestNames = mutableSetOf<String>()
+        val removedTests = mutableListOf<RemovedTestCandidate>()
 
         // Состояние для @System
         val classScopes = mutableListOf<ClassScope>()
@@ -49,6 +48,8 @@ class TestParser {
         var pendingClassSystem: String? = null
         var lastSeenSystem: String? = null
         var pendingTestSystem: String? = null
+        val addedSanitizer = KotlinCodeSanitizer()
+        val removedSanitizer = KotlinCodeSanitizer()
 
         fun currentClassSystem(): String? = classScopes.lastOrNull()?.systemId
 
@@ -58,31 +59,9 @@ class TestParser {
             }
         }
 
-        fun countCharOutsideStrings(content: String, target: Char): Int {
-            var count = 0
-            var inString = false
-            var escaped = false
-            for (ch in content) {
-                if (escaped) {
-                    escaped = false
-                    continue
-                }
-                if (ch == '\\' && inString) {
-                    escaped = true
-                    continue
-                }
-                if (ch == '"') {
-                    inString = !inString
-                    continue
-                }
-                if (!inString && ch == target) count++
-            }
-            return count
-        }
-
         fun updateBraceDepth(content: String) {
-            val opens = countCharOutsideStrings(content, '{')
-            val closes = countCharOutsideStrings(content, '}')
+            val opens = content.count { it == '{' }
+            val closes = content.count { it == '}' }
             val previousDepth = braceDepth
             braceDepth = (braceDepth + opens - closes).coerceAtLeast(0)
             if (pendingClassDeclaration && opens > 0) {
@@ -101,7 +80,7 @@ class TestParser {
             val indentIndex = if (hasDiffPrefix) 1 else 0
             val isNested = braceDepth > 0 || line.getOrNull(indentIndex)?.isWhitespace() == true
             val resolvedSystem = if (!isNested) lastSeenSystem else lastSeenSystem ?: currentClassSystem()
-            val opensClassBody = countCharOutsideStrings(content, '{') > 0
+            val opensClassBody = content.contains('{')
             if (opensClassBody) {
                 classScopes.add(ClassScope(braceDepth + 1, resolvedSystem))
             } else {
@@ -115,16 +94,7 @@ class TestParser {
             return true
         }
 
-        fun flushHunk() {
-            // Новыми считаются добавленные тесты, имя которых
-            // не встречается среди удалённых (исключаем переименования/перемещения)
-            for (test in addedTests) {
-                if (test.functionName !in removedTestNames) {
-                    results.add(test)
-                }
-            }
-            addedTests.clear()
-            removedTestNames.clear()
+        fun resetPendingState() {
             addedPendingAnnotation = false
             removedPendingAnnotation = false
             pendingTestSystem = null
@@ -132,38 +102,57 @@ class TestParser {
         }
 
         for (line in diffOutput.lines()) {
-            // Новый файл
-            if (line.startsWith("+++ b/")) {
-                flushHunk()
-                currentFile = line.removePrefix("+++ b/")
+            if (line.startsWith("diff --git ")) {
+                resetPendingState()
+                currentFile = null
+                currentOldFile = null
+                addedSanitizer.reset()
+                removedSanitizer.reset()
+                continue
+            }
+
+            // Старый путь нужен, чтобы сопоставлять удаления из удалённых файлов.
+            if (line.startsWith("--- a/") || line == "--- /dev/null") {
+                currentOldFile = parseDiffPath(line.removePrefix("--- "), "a/")
+                continue
+            }
+
+            // Новый файл. /dev/null означает, что файл был удалён.
+            if (line.startsWith("+++ b/") || line == "+++ /dev/null") {
+                resetPendingState()
+                currentFile = parseDiffPath(line.removePrefix("+++ "), "b/")
                 classScopes.clear()
                 braceDepth = 0
                 pendingClassDeclaration = false
                 pendingClassSystem = null
                 lastSeenSystem = null
                 pendingTestSystem = null
+                addedSanitizer.reset()
+                removedSanitizer.reset()
                 continue
             }
 
             // Пропускаем метаданные diff
-            if (line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ")) {
+            if (line.startsWith("index ")) {
                 continue
             }
 
-            // Новый hunk — сбрасываем и сохраняем результаты предыдущего
+            // Новый hunk — сбрасываем только локальное состояние аннотаций.
             if (line.startsWith("@@")) {
-                flushHunk()
+                resetPendingState()
                 continue
             }
 
             // === Добавленные строки (+) ===
             if (line.startsWith("+")) {
-                val content = line.substring(1).trim()
+                val source = line.substring(1)
+                val sanitized = addedSanitizer.sanitizeLine(source)
+                val content = sanitized.trim()
 
                 // Проверяем @System на этой строке
-                val systemMatch = systemAnnotationRegex.find(content)
-                if (systemMatch != null) {
-                    lastSeenSystem = systemMatch.groupValues[1]
+                val systemId = extractSystemId(source, sanitized)
+                if (systemId != null) {
+                    lastSeenSystem = systemId
                 }
 
                 // Проверяем объявление класса.
@@ -199,8 +188,8 @@ class TestParser {
 
                 // Промежуточные аннотации (@DisplayName, @System и т.п.) — флаг сохраняется
                 if (addedPendingAnnotation && content.startsWith("@")) {
-                    if (systemMatch != null) {
-                        pendingTestSystem = systemMatch.groupValues[1]
+                    if (systemId != null) {
+                        pendingTestSystem = systemId
                         lastSeenSystem = null
                     }
                     continue
@@ -230,7 +219,7 @@ class TestParser {
                 // Сбрасываем lastSeenSystem на обычных строках кода
                 // (не аннотация, не пустая строка), чтобы @System на поле/свойстве
                 // не утекал к последующим тестам
-                if (systemMatch == null && !content.startsWith("@") && content.isNotBlank()) {
+                if (systemId == null && !content.startsWith("@") && content.isNotBlank()) {
                     lastSeenSystem = null
                 }
                 updateBraceDepth(content)
@@ -239,11 +228,14 @@ class TestParser {
 
             // === Удалённые строки (-) ===
             if (line.startsWith("-")) {
-                val content = line.substring(1).trim()
+                val source = line.substring(1)
+                val content = removedSanitizer.sanitizeLine(source).trim()
 
                 if (hasTestAnnotationAndFun(content)) {
                     val funName = extractFunctionName(content)
-                    if (funName != null) removedTestNames.add(funName)
+                    if (funName != null) {
+                        removedTests.add(RemovedTestCandidate(funName, currentOldFile ?: currentFile))
+                    }
                     removedPendingAnnotation = false
                     continue
                 }
@@ -259,7 +251,9 @@ class TestParser {
 
                 if (removedPendingAnnotation && containsFunDeclaration(content)) {
                     val funName = extractFunctionName(content)
-                    if (funName != null) removedTestNames.add(funName)
+                    if (funName != null) {
+                        removedTests.add(RemovedTestCandidate(funName, currentOldFile ?: currentFile))
+                    }
                     removedPendingAnnotation = false
                     continue
                 }
@@ -275,12 +269,15 @@ class TestParser {
             }
 
             // === Контекстные строки (без префикса) ===
-            val contextContent = line.trim()
+            val contextSource = if (line.startsWith(" ")) line.substring(1) else line
+            val sanitizedContext = addedSanitizer.sanitizeLine(contextSource)
+            removedSanitizer.sanitizeLine(contextSource)
+            val contextContent = sanitizedContext.trim()
 
             // Проверяем @System на контекстных строках (неизменённый класс)
-            val contextSystemMatch = systemAnnotationRegex.find(contextContent)
-            if (contextSystemMatch != null) {
-                lastSeenSystem = contextSystemMatch.groupValues[1]
+            val contextSystemId = extractSystemId(contextSource, sanitizedContext)
+            if (contextSystemId != null) {
+                lastSeenSystem = contextSystemId
             }
 
             // Проверяем объявление класса на контекстных строках.
@@ -292,7 +289,14 @@ class TestParser {
                 continue
             }
 
-            if (contextSystemMatch == null && !isContextClassDeclaration
+            // Пустые строки и комментарии не разрывают последовательность
+            // аннотаций перед добавленной/удалённой функцией.
+            if (contextContent.isBlank()) {
+                updateBraceDepth(contextContent)
+                continue
+            }
+
+            if (contextSystemId == null && !isContextClassDeclaration
                 && !contextContent.startsWith("@") && contextContent.isNotBlank()) {
                 lastSeenSystem = null
             }
@@ -304,10 +308,64 @@ class TestParser {
             updateBraceDepth(contextContent)
         }
 
-        // Последний hunk
-        flushHunk()
+        return reconcileAddedAndRemovedTests(addedTests, removedTests)
+    }
 
-        return results
+    /**
+     * Сопоставляет изменения сначала в том же файле, затем во всём коммите.
+     * Счётчики важны: одно удаление подавляет ровно одно добавление.
+     */
+    private fun reconcileAddedAndRemovedTests(
+        addedTests: List<NewTestInfo>,
+        removedTests: List<RemovedTestCandidate>
+    ): List<NewTestInfo> {
+        val remainingByLocation = removedTests
+            .mapNotNull { removed ->
+                removed.filePath?.let { TestLocationKey(removed.functionName, it) }
+            }
+            .groupingBy { it }
+            .eachCount()
+            .toMutableMap()
+        val remainingByName = removedTests
+            .groupingBy { it.functionName }
+            .eachCount()
+            .toMutableMap()
+
+        fun <K> consume(counter: MutableMap<K, Int>, key: K): Boolean {
+            val count = counter[key] ?: return false
+            if (count == 1) counter.remove(key) else counter[key] = count - 1
+            return true
+        }
+
+        val candidatesForCommitWideMatch = mutableListOf<NewTestInfo>()
+        for (added in addedTests) {
+            val location = TestLocationKey(added.functionName, added.filePath)
+            if (consume(remainingByLocation, location)) {
+                consume(remainingByName, added.functionName)
+            } else {
+                candidatesForCommitWideMatch.add(added)
+            }
+        }
+
+        return candidatesForCommitWideMatch.filter { added ->
+            !consume(remainingByName, added.functionName)
+        }
+    }
+
+    private fun parseDiffPath(rawPath: String, sidePrefix: String): String? {
+        if (rawPath == "/dev/null") return null
+        return rawPath.removePrefix(sidePrefix)
+    }
+
+    /**
+     * Находит @System только если сама аннотация находится в Kotlin-коде.
+     * Значение читается из исходной строки, потому что sanitizer скрывает
+     * содержимое строковых литералов, сохраняя их позиции.
+     */
+    private fun extractSystemId(source: String, sanitized: String): String? {
+        val annotation = systemAnnotationTokenRegex.find(sanitized) ?: return null
+        val match = systemAnnotationRegex.find(source, annotation.range.first) ?: return null
+        return match.takeIf { it.range.first == annotation.range.first }?.groupValues?.get(1)
     }
 
     /**
@@ -328,6 +386,7 @@ class TestParser {
         var lastSeenSystem: String? = null
         var pendingTestSystem: String? = null
         var pendingAnnotation = false
+        val sanitizer = KotlinCodeSanitizer()
 
         fun currentClassSystem(): String? = classScopes.lastOrNull()?.systemId
 
@@ -337,31 +396,9 @@ class TestParser {
             }
         }
 
-        fun countCharOutsideStrings(content: String, target: Char): Int {
-            var count = 0
-            var inString = false
-            var escaped = false
-            for (ch in content) {
-                if (escaped) {
-                    escaped = false
-                    continue
-                }
-                if (ch == '\\' && inString) {
-                    escaped = true
-                    continue
-                }
-                if (ch == '"') {
-                    inString = !inString
-                    continue
-                }
-                if (!inString && ch == target) count++
-            }
-            return count
-        }
-
         fun updateBraceDepth(content: String) {
-            val opens = countCharOutsideStrings(content, '{')
-            val closes = countCharOutsideStrings(content, '}')
+            val opens = content.count { it == '{' }
+            val closes = content.count { it == '}' }
             val previousDepth = braceDepth
             braceDepth = (braceDepth + opens - closes).coerceAtLeast(0)
             if (pendingClassDeclaration && opens > 0) {
@@ -373,17 +410,18 @@ class TestParser {
         }
 
         for (line in fileContent.lines()) {
-            val content = line.trim()
+            val sanitized = sanitizer.sanitizeLine(line)
+            val content = sanitized.trim()
 
-            val systemMatch = systemAnnotationRegex.find(content)
-            if (systemMatch != null) {
-                lastSeenSystem = systemMatch.groupValues[1]
+            val systemId = extractSystemId(line, sanitized)
+            if (systemId != null) {
+                lastSeenSystem = systemId
             }
 
             if (classDeclarationRegex.containsMatchIn(content) && !content.contains("companion object")) {
                 val isNested = braceDepth > 0 || line.firstOrNull()?.isWhitespace() == true
                 val resolvedSystem = if (!isNested) lastSeenSystem else lastSeenSystem ?: currentClassSystem()
-                if (countCharOutsideStrings(content, '{') > 0) {
+                if (content.contains('{')) {
                     classScopes.add(ClassScope(braceDepth + 1, resolvedSystem))
                 } else {
                     pendingClassDeclaration = true
@@ -420,8 +458,8 @@ class TestParser {
             }
 
             if (pendingAnnotation && content.startsWith("@")) {
-                if (systemMatch != null) {
-                    pendingTestSystem = systemMatch.groupValues[1]
+                if (systemId != null) {
+                    pendingTestSystem = systemId
                     lastSeenSystem = null
                 }
                 continue
@@ -446,7 +484,7 @@ class TestParser {
                 pendingTestSystem = null
             }
 
-            if (systemMatch == null && !content.startsWith("@") && content.isNotBlank()) {
+            if (systemId == null && !content.startsWith("@") && content.isNotBlank()) {
                 lastSeenSystem = null
             }
             updateBraceDepth(content)
