@@ -202,6 +202,32 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Apostrophes and comment markers inside backtick names do not break parsing")
+    fun handlesApostropheAndCommentMarkersInsideBacktickNames() {
+        // Апостроф внутри backtick-имени — не начало char literal, а // внутри
+        // него — не комментарий: остаток строки (включая скобку после имени)
+        // должен остаться видимым парсеру. Строковый литерал после имени при
+        // этом по-прежнему затирается — @Test внутри него не даёт фантома.
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -0,0 +1,8 @@
++    @Test
++    fun `doesn't fail`() {
++        val s = "@Test fun phantom() {"
++    }
++
++    @Test
++    fun `weird // not a comment`() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+        assertEquals(2, results.size)
+        assertEquals("`doesn't fail`", results[0].functionName)
+        assertEquals("`weird // not a comment`", results[1].functionName)
+    }
+
+    @Test
     @DisplayName("Returns empty for diff with no test additions")
     fun returnsEmptyForNoTests() {
         val diff = """
@@ -1055,6 +1081,25 @@ class MyTest {
 
         val mapping = parser.extractSystemMapping(fileContent)
         assertEquals("CI01337", mapping["`should do something`"])
+    }
+
+    @Test
+    @DisplayName("extractSystemMapping: apostrophe inside a backtick name keeps the test visible")
+    fun extractSystemMappingApostropheInsideBacktickName() {
+        val fileContent = """
+@System("CI01337")
+class MyTest {
+    @Test
+    fun `doesn't fail`() {}
+
+    @Test
+    fun regularTest() {}
+}
+        """.trimIndent()
+
+        val mapping = parser.extractSystemMapping(fileContent)
+        assertEquals("CI01337", mapping["`doesn't fail`"])
+        assertEquals("CI01337", mapping["regularTest"])
     }
 
     @Test

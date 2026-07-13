@@ -12,7 +12,8 @@ internal class KotlinCodeSanitizer {
         BLOCK_COMMENT,
         RAW_STRING,
         REGULAR_STRING,
-        CHAR_LITERAL
+        CHAR_LITERAL,
+        BACKTICK_IDENTIFIER
     }
 
     private var mode = Mode.CODE
@@ -52,6 +53,12 @@ internal class KotlinCodeSanitizer {
 
                     source[index] == '\'' -> {
                         mode = Mode.CHAR_LITERAL
+                        index++
+                    }
+
+                    source[index] == '`' -> {
+                        sanitized[index] = source[index]
+                        mode = Mode.BACKTICK_IDENTIFIER
                         index++
                     }
 
@@ -104,13 +111,24 @@ internal class KotlinCodeSanitizer {
 
                     else -> index++
                 }
+
+                // A backtick identifier is code, not a literal: its content is
+                // kept verbatim so the function-name regex still sees it, and
+                // quotes or comment markers inside it must not change state
+                // (fun `doesn't fail`()). Backticks have no escape sequences.
+                Mode.BACKTICK_IDENTIFIER -> {
+                    sanitized[index] = source[index]
+                    if (source[index] == '`') mode = Mode.CODE
+                    index++
+                }
             }
         }
 
-        // Regular strings and chars cannot legally span Kotlin source lines.
-        // Resetting here also prevents one malformed line from hiding the rest
-        // of a diff. Block comments and raw strings deliberately remain stateful.
-        if (mode == Mode.REGULAR_STRING || mode == Mode.CHAR_LITERAL) {
+        // Regular strings, chars and backtick identifiers cannot legally span
+        // Kotlin source lines. Resetting here also prevents one malformed line
+        // from hiding the rest of a diff. Block comments and raw strings
+        // deliberately remain stateful.
+        if (mode == Mode.REGULAR_STRING || mode == Mode.CHAR_LITERAL || mode == Mode.BACKTICK_IDENTIFIER) {
             mode = Mode.CODE
         }
 
