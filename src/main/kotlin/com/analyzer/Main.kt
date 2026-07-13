@@ -21,7 +21,10 @@ fun main() {
             gitClient = gitClient,
             repoPath = repoPath,
             outputDir = outputDir,
-            threadCount = threadCount
+            threadCount = threadCount,
+            systemNames = AnalyzerConfig.SYSTEM_NAMES,
+            authorNames = AnalyzerConfig.AUTHOR_NAMES,
+            excludedTesters = AnalyzerConfig.EXCLUDED_TESTERS
         )
     } catch (e: Exception) {
         Logger.error(e.message ?: e::class.simpleName ?: "Unexpected error")
@@ -35,13 +38,17 @@ fun main() {
 /**
  * Точка запуска анализа, отделённая от `main()` для тестируемости.
  * Принимает [gitClient] как [GitOperations], что позволяет подставлять
- * in-memory fake-репозиторий в интеграционных тестах.
+ * in-memory fake-репозиторий в интеграционных тестах. Настройки HTML-отчёта
+ * также передаются явно, чтобы результат не зависел от глобального конфига.
  */
 internal fun runAnalysis(
     gitClient: GitOperations,
     repoPath: String,
     outputDir: String,
-    threadCount: Int
+    threadCount: Int,
+    systemNames: Map<String, String>,
+    authorNames: Map<String, String>,
+    excludedTesters: Set<String>
 ) {
     if (!gitClient.validateRepo()) {
         Logger.error("'$repoPath' is not a valid git repository.")
@@ -122,9 +129,9 @@ internal fun runAnalysis(
     val htmlGenerator = HtmlReportGenerator()
     htmlGenerator.generate(
         dedupedRecords, repoPath, outputDir,
-        systemNames = AnalyzerConfig.SYSTEM_NAMES,
-        authorNames = AnalyzerConfig.AUTHOR_NAMES,
-        excludedTesters = AnalyzerConfig.EXCLUDED_TESTERS
+        systemNames = systemNames,
+        authorNames = authorNames,
+        excludedTesters = excludedTesters
     )
     Logger.info("HTML report generated: $outputDir/report.html")
 }
