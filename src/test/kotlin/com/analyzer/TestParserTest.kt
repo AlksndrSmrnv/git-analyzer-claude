@@ -164,6 +164,24 @@ class TestParserTest {
     }
 
     @Test
+    @DisplayName("Handles @DisplayName value on the following line")
+    fun handlesMultilineDisplayName() {
+        val diff = """
++++ b/src/test/kotlin/MyTest.kt
+@@ -10,0 +11,5 @@
++    @Test
++    @DisplayName(
++        "Тут название теста")
++    fun annotatedTest() {
++    }
+        """.trimIndent()
+
+        val results = parser.findNewTests(diff)
+
+        assertEquals(listOf("annotatedTest"), results.map { it.functionName })
+    }
+
+    @Test
     @DisplayName("Counts multiple new tests in one diff")
     fun countsMultipleNewTests() {
         val diff = """
