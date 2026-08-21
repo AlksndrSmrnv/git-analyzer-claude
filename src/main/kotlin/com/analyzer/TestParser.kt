@@ -206,7 +206,7 @@ class TestParser {
                     continue
                 }
 
-                if (addedPendingAnnotation && content.isBlank()) {
+                if (addedPendingAnnotation && (content.isBlank() || content == ")")) {
                     continue
                 }
 
@@ -257,7 +257,7 @@ class TestParser {
                     continue
                 }
 
-                if (removedPendingAnnotation && content.isBlank()) {
+                if (removedPendingAnnotation && (content.isBlank() || content == ")")) {
                     continue
                 }
 
@@ -476,7 +476,7 @@ class TestParser {
                 continue
             }
 
-            if (pendingAnnotation && content.isBlank()) continue
+            if (pendingAnnotation && (content.isBlank() || content == ")")) continue
 
             if (pendingAnnotation) {
                 pendingAnnotation = false
